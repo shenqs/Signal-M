@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Signal Monitor</string>
+    <string name="subtitle">WiFi与蜂窝网络信号强度及辐射监测</string>
+    <string name="wifi">WiFi</string>
+    <string name="cellular">蜂窝网络</string>
+    <string name="wifi_signal">WiFi 信号</string>
+    <string name="cellular_signal">蜂窝网络信号</string>
+    <string name="disconnected">未连接</string>
+    <string name="connected">已连接</string>
+    <string name="not_available">暂无数据</string>
+    <string name="radiation_level">辐射水平</string>
+    <string name="overall_radiation">综合辐射评估</string>
+    <string name="overall_recommendation">下拉刷新或点击按钮更新数据</string>
+    <string name="refresh">刷新信号</string>
+    <string name="request_permissions">请求权限</string>
+    <string name="monitoring_service">信号监控服务运行中</string>
+    <string name="service_description">正在监测网络信号强度和辐射水平</string>
+</resources>
