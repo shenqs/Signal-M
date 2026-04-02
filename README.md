@@ -1,138 +1,98 @@
-# Signal Monitor - WiFi与蜂窝网络信号强度及辐射监测应用
+# Signal Monitor
 
-一款Android应用程序，用于实时监测WiFi和蜂窝移动网络信号强度，并估算手机辐射水平。
+Android app for real-time WiFi & cellular signal strength monitoring, radiation level estimation, and 3D satellite visualization.
 
-## 功能特性
+## Features
 
-- **WiFi信号监测**
-  - 实时显示WiFi信号强度（dBm）
-  - 显示连接的SSID、BSSID、频率和速率
-  - 可视化信号强度条
+### Signal Monitoring
+- **WiFi**: RSSI, SSID, BSSID, frequency, link speed with animated signal bars
+- **Cellular**: 2G/3G/4G/5G signal strength (dBm), network type, PCI/CI info
+- **Auto-refresh**: Data updates every 3 seconds with smooth animations
 
-- **蜂窝网络信号监测**
-  - 支持2G/3G/4G/5G网络
-  - 显示信号强度（dBm）
-  - 显示网络类型和基站信息（PCI、CI等）
-  - 可视化信号强度条
+### Radiation Estimation
+- SAR (Specific Absorption Rate) calculation based on signal strength
+- Color-coded gauge: 🟢 Safe → 🟡 Notice → 🟠 Warning → 🔴 Danger
+- Percentage of international safety limits (ICNIRP/FCC/China GB)
+- Health recommendations based on exposure level
 
-- **辐射水平估算**
-  - 基于信号强度估算发射功率
-  - 计算功率密度和SAR值（比吸收率）
-  - 辐射等级评估（低/中等/较高/高）
-  - 提供健康建议
+### 3D Satellite Globe
+- Interactive Earth globe with continent outlines and grid lines
+- Real-time satellite positions for GPS, Beidou, GLONASS, Galileo
+- Color-coded satellites with SNR and elevation labels
+- Touch controls: drag to rotate, pinch to zoom
+- Auto-rotation when idle
 
-- **综合评估**
-  - 综合WiFi和蜂窝网络的辐射水平
-  - 可视化进度条显示总体辐射百分比
-  - 提供整体健康建议
+### Position Source Identification
+- Distinguishes real GNSS signals from assisted positioning (WiFi/cell/AGPS)
+- Visual badges showing active positioning sources
 
-## 系统要求
+### Safety Standards Reference
+- ICNIRP, FCC, China GB 21288-2007, IEEE C95.1 limits
+- Common device radiation levels comparison
+- Environmental radiation reference
 
-- Android 8.0 (API 26) 及以上
-- 需要位置权限（用于获取WiFi信息）
-- 需要电话状态权限（用于获取蜂窝网络信息）
+## Screenshots
 
-## 权限说明
+| Signal Cards | 3D Globe | Radiation Gauge |
+|-------------|----------|-----------------|
+| WiFi & cellular signal strength with animated bars | Interactive Earth with satellite positions | Color-coded SAR level gauge |
 
-| 权限 | 用途 |
-|------|------|
-| ACCESS_WIFI_STATE | 获取WiFi状态和信号强度 |
-| ACCESS_FINE_LOCATION | Android要求获取WiFi信息需要位置权限 |
-| ACCESS_COARSE_LOCATION | 同上 |
-| READ_PHONE_STATE | 获取蜂窝网络信号信息 |
-| ACCESS_NETWORK_STATE | 检测网络状态变化 |
+## Build
 
-## 如何使用
-
-1. **安装应用**
-   - 使用Android Studio打开项目
-   - 连接Android设备或启动模拟器
-   - 点击运行按钮安装应用
-
-2. **授予权限**
-   - 首次打开应用时，点击"请求权限"按钮
-   - 允许所有请求的权限
-
-3. **查看信号**
-   - 主界面显示WiFi和蜂窝网络信号卡片
-   - 下拉刷新或点击"刷新信号"按钮更新数据
-
-4. **解读数据**
-   - **信号强度**：数值越接近0表示信号越好（如-50dBm比-90dBm好）
-   - **信号等级**：极好 > 良好 > 一般 > 较差 > 无信号
-   - **辐射水平**：低 < 中等 < 较高 < 高
-
-## 信号强度参考
-
-### WiFi信号
-| 信号强度 (dBm) | 质量 |
-|----------------|------|
-| -30 ~ -50 | 极好 |
-| -50 ~ -60 | 良好 |
-| -60 ~ -70 | 一般 |
-| -70 ~ -80 | 较差 |
-| < -80 | 无信号 |
-
-### 蜂窝网络信号
-| 信号强度 (dBm) | 质量 |
-|----------------|------|
-| > -70 | 极好 |
-| -70 ~ -85 | 良好 |
-| -85 ~ -100 | 一般 |
-| -100 ~ -115 | 较差 |
-| < -115 | 无信号 |
-
-## 辐射安全信息
-
-- **SAR限值**：根据国际标准，公众暴露的SAR限值为2.0 W/kg（10g组织平均值）
-- **本应用估算**：基于信号强度和设备发射功率模型进行估算，仅供参考
-- **安全建议**：
-  - 信号弱时，手机会增加发射功率，辐射水平可能更高
-  - 建议使用耳机或免提进行通话
-  - 避免长时间将手机贴近身体
-
-## 项目结构
-
-```
-SignalMonitor/
-├── app/
-│   ├── src/main/
-│   │   ├── java/com/signalmontor/app/
-│   │   │   ├── MainActivity.kt          # 主界面和活动逻辑
-│   │   │   ├── NetworkChangeReceiver.kt # 网络变化广播接收器
-│   │   │   ├── SignalInfo.kt            # 数据模型
-│   │   │   └── RadiationCalculator.kt   # 辐射计算工具类
-│   │   ├── res/
-│   │   │   ├── layout/
-│   │   │   │   └── activity_main.xml    # 主界面布局
-│   │   │   ├── drawable/                # 图标和形状资源
-│   │   │   ├── values/                  # 字符串、颜色、主题
-│   │   │   └── xml/                     # 备份规则
-│   │   └── AndroidManifest.xml          # 应用清单
-│   └── build.gradle.kts                 # 应用级构建配置
-├── build.gradle.kts                     # 项目级构建配置
-└── settings.gradle.kts                  # 项目设置
-```
-
-## 构建说明
-
-1. 使用Android Studio打开项目
-2. 同步Gradle项目
-3. 确保已安装Android SDK 34
-4. 连接设备或启动模拟器
-5. 点击运行按钮
-
-或使用命令行：
 ```bash
-./gradlew assembleDebug
+# Prerequisites: Android SDK 34, JDK 17
+export ANDROID_HOME=/path/to/android-sdk
+./gradlew assembleDebug     # Debug APK
+./gradlew assembleRelease   # Signed release APK
 ```
 
-## 注意事项
+Or open in Android Studio and click Run.
 
-- 辐射水平估算基于理论模型，实际值可能因设备型号、环境等因素而异
-- 本应用仅供参考，不构成医疗或安全建议
-- 5G网络信息需要Android 10及以上版本和设备支持
+## Permissions
 
-## 许可证
+| Permission | Purpose |
+|-----------|---------|
+| `ACCESS_FINE_LOCATION` | WiFi info & GPS positioning |
+| `ACCESS_COARSE_LOCATION` | Network-based location |
+| `READ_PHONE_STATE` | Cellular signal info |
+| `ACCESS_WIFI_STATE` | WiFi signal strength |
+| `ACCESS_NETWORK_STATE` | Network connectivity |
+
+## Testing
+
+```bash
+./gradlew test              # Run unit tests (30 tests)
+./gradlew connectedAndroidTest  # Run instrumented tests
+```
+
+## Tech Stack
+
+- **Language**: Kotlin
+- **Min SDK**: 26 (Android 8.0)
+- **Target SDK**: 35 (Android 15)
+- **UI**: Material Design 3, Custom Views (Canvas 2D)
+- **Architecture**: Single Activity, View-based UI
+
+## Project Structure
+
+```
+app/src/main/java/com/signalmontor/app/
+├── MainActivity.kt              # Main activity with all UI logic
+├── NetworkChangeReceiver.kt     # Network state broadcast receiver
+├── RadiationCalculator.kt       # SAR & radiation level calculation
+├── RadiationStandard.kt         # Safety standards reference data
+├── SatelliteInfo.kt             # Satellite & position source models
+├── SignalInfo.kt                # Signal quality models
+└── view/
+    ├── AnimatedSignalBarView.kt # Animated signal strength bars
+    ├── RadiationGaugeView.kt    # Arc gauge for radiation level
+    └── Satellite3DView.kt       # 3D Earth globe with satellites
+```
+
+## Disclaimer
+
+Radiation estimates are based on theoretical models and should not be used for medical or safety compliance purposes. Actual SAR values vary by device model, antenna design, and environment.
+
+## License
 
 MIT License
