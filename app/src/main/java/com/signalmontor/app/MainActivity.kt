@@ -5,6 +5,10 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationListener
@@ -34,12 +38,24 @@ import com.google.android.material.card.MaterialCardView
 import com.signalmontor.app.view.AnimatedSignalBarView
 import com.signalmontor.app.view.RadiationGaugeView
 import com.signalmontor.app.view.Satellite3DView
+import com.signalmontor.app.view.SpeedMonitorView
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import org.json.JSONObject
+import android.location.Geocoder
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var wifiCard: MaterialCardView
     private lateinit var cellularCard: MaterialCardView
+    private lateinit var speedCard: MaterialCardView
     private lateinit var satelliteCard: MaterialCardView
     private lateinit var overallCard: MaterialCardView
     private lateinit var standardsCard: MaterialCardView
@@ -48,6 +64,7 @@ class MainActivity : AppCompatActivity() {
     private var wifiManager: android.net.wifi.WifiManager? = null
     private var telephonyManager: TelephonyManager? = null
     private var locationManager: LocationManager? = null
+    private var sensorManager: SensorManager? = null
     private var gnssStatusCallback: GnssStatus.Callback? = null
 
     private var currentGpsCount = 0
@@ -63,6 +80,26 @@ class MainActivity : AppCompatActivity() {
     private var refreshIntervalMs = 3000L
 
     private val positionSources = mutableListOf<PositionSource>()
+
+    private lateinit var speedCalculator: SpeedCalculator
+    private lateinit var speedMonitorView: SpeedMonitorView
+    private var sensorEventListener: SensorEventListener? = null
+    private var accelerometerSensor: Sensor? = null
+    private var gyroscopeSensor: Sensor? = null
+    private var magnetometerSensor: Sensor? = null
+    private var pressureSensor: Sensor? = null
+    private var temperatureSensor: Sensor? = null
+    private var stepDetectorSensor: Sensor? = null
+    private var linearAccelSensor: Sensor? = null
+
+    private var currentWeatherDesc = ""
+    private var currentWeatherTemp = ""
+    private var lastWeatherFetchTime = 0L
+    private val WEATHER_CACHE_INTERVAL = 60 * 60 * 1000L
+    private val WEATHER_RETRY_INTERVAL = 60 * 1000L
+    private var weatherFetchInProgress = false
+    private var currentRegion = ""
+    private var currentSubRegion = ""
 
     private val requiredPermissions = mutableListOf(
         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -90,8 +127,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        speedCalculator = SpeedCalculator()
         initViews()
         initManagers()
+        initSensors()
         setupListeners()
         showPermissionDialog()
         renderStandards()
@@ -101,16 +140,45 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh = findViewById(R.id.swipeRefresh)
         wifiCard = findViewById(R.id.wifiCard)
         cellularCard = findViewById(R.id.cellularCard)
+        speedCard = findViewById(R.id.speedCard)
         satelliteCard = findViewById(R.id.satelliteCard)
         overallCard = findViewById(R.id.overallCard)
         standardsCard = findViewById(R.id.standardsCard)
         permissionBtn = findViewById(R.id.permissionBtn)
+        speedMonitorView = findViewById(R.id.speedMonitorView)
     }
 
     private fun initManagers() {
         wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
         telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    }
+
+    private fun initSensors() {
+        linearAccelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        accelerometerSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        gyroscopeSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        magnetometerSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        pressureSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_PRESSURE)
+        temperatureSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE)
+        stepDetectorSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+
+        sensorEventListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                when (event.sensor.type) {
+                    Sensor.TYPE_LINEAR_ACCELERATION -> speedCalculator.processLinearAcceleration(event)
+                    Sensor.TYPE_ACCELEROMETER -> if (linearAccelSensor == null) speedCalculator.processAccelerometer(event)
+                    Sensor.TYPE_GYROSCOPE -> speedCalculator.processGyroscope(event)
+                    Sensor.TYPE_MAGNETIC_FIELD -> speedCalculator.processMagneticField(event)
+                    Sensor.TYPE_PRESSURE -> speedCalculator.processPressure(event)
+                    Sensor.TYPE_AMBIENT_TEMPERATURE -> speedCalculator.processTemperature(event)
+                }
+                runOnUiThread { updateSpeedUI() }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
     }
 
     private fun setupListeners() {
@@ -458,9 +526,20 @@ class MainActivity : AppCompatActivity() {
         try {
             val locationListener = LocationListener { location ->
                 lastLocation = location
+                speedCalculator.updateGpsSpeed(location.speed, location.accuracy)
+                speedCalculator.updateLocationSpeed(location.speed)
+                if (location.hasBearing()) {
+                    speedCalculator.updateGpsBearing(location.bearing)
+                }
+                if (location.hasAltitude()) {
+                    speedCalculator.updateGpsAltitude(location.altitude.toFloat())
+                }
                 runOnUiThread {
                     updatePositionSources()
                     updateSatelliteUI()
+                    updateSpeedUI()
+                    fetchWeatherIfNeeded()
+                    resolveRegion(location.latitude, location.longitude)
                 }
             }
 
@@ -469,6 +548,271 @@ class MainActivity : AppCompatActivity() {
         } catch (e: SecurityException) {
             e.printStackTrace()
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startSensorListeners() {
+        sensorEventListener?.let { listener ->
+            linearAccelSensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
+            }
+            if (linearAccelSensor == null) {
+                accelerometerSensor?.let {
+                    sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
+                }
+            }
+            gyroscopeSensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
+            }
+            magnetometerSensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
+            }
+            pressureSensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+            temperatureSensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+            stepDetectorSensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_UI)
+            }
+        }
+    }
+
+    private fun stopSensorListeners() {
+        sensorEventListener?.let { listener ->
+            sensorManager?.unregisterListener(listener)
+        }
+    }
+
+    private fun updateSpeedUI() {
+        val data = speedCalculator.getSpeed()
+        speedMonitorView.updateSpeedData(data)
+        updateSensorStatusUI()
+    }
+
+    private fun updateSensorStatusUI() {
+        val container = findViewById<LinearLayout>(R.id.sensorStatusContainer)
+        container.removeAllViews()
+
+        val sensors = listOf(
+            Triple("线性加速度", linearAccelSensor != null, speedCalculator.getSpeed().acceleration),
+            Triple("加速度计", accelerometerSensor != null, null),
+            Triple("陀螺仪", gyroscopeSensor != null, speedCalculator.getGyroMagnitude()),
+            Triple("磁力计", magnetometerSensor != null, speedCalculator.getMagMagnitude()),
+            Triple("气压计", pressureSensor != null, speedCalculator.getSpeed().pressure),
+            Triple("温度计", temperatureSensor != null, speedCalculator.getSpeed().temperature)
+        )
+
+        for ((name, available, value) in sensors) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 4, 0, 4)
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+
+            val statusDot = TextView(this).apply {
+                text = if (available) "\u25CF" else "\u25CB"
+                textSize = 14f
+                setTextColor(if (available) 0xFF4CAF50.toInt() else Color.GRAY)
+                setPadding(0, 0, 6, 0)
+            }
+
+            val nameView = TextView(this).apply {
+                text = name
+                textSize = 12f
+                setTextColor(ContextCompat.getColor(context, R.color.primary_text))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val valueView = TextView(this).apply {
+                textSize = 11f
+                setTextColor(0xFF757575.toInt())
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+
+            if (available && value != null) {
+                val v = value as Float
+                valueView.text = when (name) {
+                    "加速度计" -> String.format("%.2f m/s²", v)
+                    "陀螺仪" -> String.format("%.2f rad/s", v)
+                    "磁力计" -> String.format("%.1f μT", v)
+                    "气压计" -> String.format("%.1f hPa", v)
+                    "温度计" -> String.format("%.1f °C", v)
+                    else -> ""
+                }
+            } else if (!available) {
+                valueView.text = "不可用"
+                valueView.setTextColor(Color.GRAY)
+            }
+
+            row.addView(statusDot)
+            row.addView(nameView)
+            row.addView(valueView)
+            container.addView(row)
+        }
+
+        val statusText = findViewById<TextView>(R.id.sensorStatus)
+        val availableCount = sensors.count { it.second }
+        statusText.text = "$availableCount/${sensors.size} 传感器"
+    }
+
+    private fun resolveRegion(lat: Double, lon: Double) {
+        Thread {
+            try {
+                val geocoder = Geocoder(this, Locale.getDefault())
+                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                if (addresses != null && addresses.isNotEmpty()) {
+                    val addr = addresses[0]
+                    val region = addr.adminArea ?: addr.countryName ?: "未知"
+                    val subRegion = addr.subAdminArea ?: addr.locality ?: addr.thoroughfare ?: ""
+                    currentRegion = region
+                    currentSubRegion = subRegion
+                    runOnUiThread {
+                        val satellite3DView = findViewById<Satellite3DView>(R.id.satellite3DView)
+                        satellite3DView.updateUserLocation(lat, lon, region, subRegion)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    private fun fetchWeatherIfNeeded() {
+        if (weatherFetchInProgress) return
+        if (lastLocation == null) return
+
+        val now = System.currentTimeMillis()
+        val age = now - lastWeatherFetchTime
+        if (age > 0 && age < WEATHER_CACHE_INTERVAL) return
+
+        lastWeatherFetchTime = now
+        weatherFetchInProgress = true
+        fetchWeatherInfo(lastLocation!!.latitude, lastLocation!!.longitude)
+    }
+
+    private fun fetchWeatherInfo(lat: Double, lon: Double) {
+        Thread {
+            try {
+                val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto"
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
+
+                if (connection.responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                    val response = reader.use { it.readText() }
+                    val json = JSONObject(response)
+                    val current = json.getJSONObject("current")
+
+                    val temp = current.getDouble("temperature_2m").toFloat()
+                    val humidity = current.getInt("relative_humidity_2m")
+                    val windSpeed = current.getDouble("wind_speed_10m").toFloat()
+                    val weatherCode = current.getInt("weather_code")
+
+                    val weatherDesc = getWeatherDescription(weatherCode)
+                    val timezone = json.getString("timezone")
+                    val tzShort = timezone.split("/").lastOrNull()?.replace("_", " ") ?: timezone
+
+                    val weatherInfo = WeatherData(
+                        weatherDesc = "$weatherDesc | 湿度${humidity}% | 风速${windSpeed}km/h",
+                        temperature = String.format("%.1f", temp),
+                        timezone = tzShort
+                    )
+
+                    runOnUiThread {
+                        currentWeatherDesc = weatherInfo.weatherDesc
+                        currentWeatherTemp = weatherInfo.temperature
+                        updateWeatherInfoUI(weatherInfo)
+                    }
+                } else {
+                    scheduleWeatherRetry()
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                scheduleWeatherRetry()
+            }
+        }.start()
+    }
+
+    private fun scheduleWeatherRetry() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            weatherFetchInProgress = false
+            if (lastLocation != null) {
+                fetchWeatherIfNeeded()
+            }
+        }, WEATHER_RETRY_INTERVAL)
+    }
+
+    private fun getWeatherDescription(code: Int): String {
+        return when (code) {
+            0 -> "☀️ 晴朗"
+            1, 2, 3 -> "⛅ 多云"
+            45, 48 -> "🌫️ 雾"
+            51, 53, 55 -> "🌦️ 毛毛雨"
+            61, 63, 65 -> "🌧️ 雨"
+            66, 67 -> "🌨️ 冻雨"
+            71, 73, 75 -> "❄️ 雪"
+            77 -> "🌨️ 雪粒"
+            80, 81, 82 -> "🌧️ 阵雨"
+            85, 86 -> "🌨️ 阵雪"
+            95 -> "⛈️ 雷暴"
+            96, 99 -> "⛈️ 雷暴冰雹"
+            else -> "🌤️ 未知"
+        }
+    }
+
+    private fun updateWeatherInfoUI(weather: WeatherData) {
+        val container = findViewById<LinearLayout>(R.id.weatherInfoContainer)
+        container.removeAllViews()
+
+        val tz = TimeZone.getDefault()
+        val tzName = tz.displayName
+        val now = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).apply { timeZone = tz }
+        val currentTime = now.format(Date())
+
+        val addressText = if (currentRegion.isNotEmpty()) {
+            if (currentSubRegion.isNotEmpty()) "$currentRegion $currentSubRegion" else currentRegion
+        } else { "获取中..." }
+
+        val rows = listOf(
+            Triple("地址", addressText, 0xFFFF5722.toInt()),
+            Triple("温度", "${weather.temperature}°C", 0xFFFF9800.toInt()),
+            Triple("天气", weather.weatherDesc, 0xFF2196F3.toInt()),
+            Triple("时区", "$tzName", 0xFF757575.toInt()),
+            Triple("本地时间", currentTime, 0xFF4CAF50.toInt())
+        )
+
+        for ((label, value, color) in rows) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 4, 0, 4)
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+
+            val labelView = TextView(this).apply {
+                text = label
+                textSize = 12f
+                setTextColor(0xFF757575.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val valueView = TextView(this).apply {
+                text = value
+                textSize = 12f
+                setTextColor(color)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+
+            row.addView(labelView)
+            row.addView(valueView)
+            container.addView(row)
+        }
+
+        findViewById<TextView>(R.id.weatherStatus).text = "已更新"
     }
 
     @SuppressLint("MissingPermission")
@@ -758,21 +1102,30 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startAutoRefresh()
+            startSensorListeners()
         }
     }
 
     override fun onPause() {
         super.onPause()
         stopAutoRefresh()
+        stopSensorListeners()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         stopAutoRefresh()
+        stopSensorListeners()
         try {
             gnssStatusCallback?.let { locationManager?.unregisterGnssStatusCallback(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
+
+    data class WeatherData(
+        val weatherDesc: String,
+        val temperature: String,
+        val timezone: String
+    )
 }

@@ -336,6 +336,130 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- 速度与运动监测卡片 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/speedCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:text="🚀"
+                            android:textSize="22sp"
+                            android:gravity="center" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="速度与运动监测"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/primary_text"
+                            android:layout_marginStart="10dp" />
+
+                        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+
+                        <TextView
+                            android:id="@+id/sensorStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="传感器就绪"
+                            android:textSize="12sp"
+                            android:textColor="@color/secondary_text" />
+                    </LinearLayout>
+
+                    <com.signalmontor.app.view.SpeedMonitorView
+                        android:id="@+id/speedMonitorView"
+                        android:layout_width="match_parent"
+                        android:layout_height="300dp"
+                        android:layout_marginTop="8dp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/divider"
+                        android:layout_marginTop="8dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="10dp"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📡 传感器状态"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/primary_text" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/sensorStatusContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="6dp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/divider"
+                        android:layout_marginTop="8dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="10dp"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🌍 环境信息"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/primary_text" />
+
+                        <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+
+                        <TextView
+                            android:id="@+id/weatherStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="获取中..."
+                            android:textSize="11sp"
+                            android:textColor="@color/secondary_text" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/weatherInfoContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="6dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <!-- 卫星定位信息卡片 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/satelliteCard"

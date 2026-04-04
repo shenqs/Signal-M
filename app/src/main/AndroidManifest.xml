@@ -17,6 +17,13 @@
     <!-- GPS卫星定位 -->
     <uses-permission android:name="android.permission.ACCESS_GPS" />
     <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
+    
+    <!-- 网络请求（天气信息） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    
+    <!-- 身体传感器（计步器） -->
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
     <uses-feature
         android:name="android.hardware.telephony"
