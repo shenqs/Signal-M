@@ -149,20 +149,7 @@ class SpeedCalculator {
 
         currentAcceleration = avgAccel * GRAVITY
 
-        horizontalAccel = sqrt(
-            linearAcceleration[0] * linearAcceleration[0] +
-            linearAcceleration[1] * linearAcceleration[1]
-        )
-
         val now = event.timestamp / 1_000_000
-        if (lastKfTime > 0) {
-            val dtKf = (now - lastKfTime) / 1000f
-            if (dtKf > 0 && dtKf < 1.0f && !hasGpsFix) {
-                kfSpeed += horizontalAccel * dtKf
-                kfError += kfProcessNoise * dtKf
-            }
-        }
-        lastKfTime = now
         lastUpdate = now
 
         if (avgAccel > 2.0f) {
@@ -437,16 +424,6 @@ class SpeedCalculator {
         lastGpsUpdateTime = System.currentTimeMillis()
 
         if (hasGpsFix) {
-            val gpsSpeedKmh = speedMps * 3.6f
-            val speedDiff = abs(gpsSpeedKmh - kfSpeed)
-
-            if (speedDiff < SPEED_DIFF_THRESHOLD) {
-                val measurementNoise = KF_MEASUREMENT_NOISE_BASE + (accuracy * 0.5f)
-                val kalmanGain = kfError / (kfError + measurementNoise)
-                kfSpeed += kalmanGain * (gpsSpeedKmh - kfSpeed)
-                kfError *= (1f - kalmanGain)
-            }
-
             val nowMs = System.currentTimeMillis()
             if (lastGpsSpeedTime > 0) {
                 val dt = (nowMs - lastGpsSpeedTime) / 1000f
@@ -489,9 +466,7 @@ class SpeedCalculator {
         val gpsSpeedKmh = if (gpsValid) gpsSpeed * 3.6f else -1f
 
         var rawSpeedKmh = 0f
-        if (kfSpeed > 0f && gpsValid) {
-            rawSpeedKmh = kfSpeed
-        } else if (gpsValid && gpsSpeedKmh >= 0f && gpsSpeedKmh < DISPLAY_SPEED_MAX) {
+        if (gpsValid && gpsSpeedKmh >= 0f && gpsSpeedKmh < DISPLAY_SPEED_MAX) {
             val speedDiff = abs(gpsSpeedKmh - displaySpeed)
             if (speedDiff < SPEED_DIFF_THRESHOLD || displaySpeed < 1f) {
                 rawSpeedKmh = gpsSpeedKmh
