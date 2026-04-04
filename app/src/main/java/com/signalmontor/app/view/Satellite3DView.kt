@@ -29,15 +29,15 @@ class Satellite3DView @JvmOverloads constructor(
     private var vW = 0
     private var vH = 0
 
-    private var rX = -20f
+    private var rX = 0f
     private var rY = 0f
-    private var tRX = -20f
+    private var tRX = 0f
     private var tRY = 0f
     private var zoom = 1f
     private var tZoom = 1f
 
     private var dragging = false
-    private var autoRot = true
+    private var autoRot = false
     private var lastTX = 0f
     private var lastTY = 0f
     private var autoTimer = 0L
@@ -420,7 +420,6 @@ class Satellite3DView @JvmOverloads constructor(
         super.onDraw(c)
         c.drawColor(0xFF030612.toInt())
         drawStars(c)
-        if (autoRot && System.currentTimeMillis() - autoTimer > 4000) tRY += 0.12f
         rX += (tRX - rX) * 0.1f; rY += (tRY - rY) * 0.1f; zoom += (tZoom - zoom) * 0.1f
         val r = eR * zoom
         val sorted = satellites.sortedBy { it.az }

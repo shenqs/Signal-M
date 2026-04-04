@@ -276,6 +276,8 @@ class SpeedCalculator {
 
     fun getGyroMagnitude(): Float = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ)
     fun getMagMagnitude(): Float = sqrt(magX * magX + magY * magY + magZ * magZ)
+    fun getGravityMagnitude(): Float = sqrt(gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2])
+    fun getLinearAccelMagnitude(): Float = sqrt(linearAcceleration[0] * linearAcceleration[0] + linearAcceleration[1] * linearAcceleration[1] + linearAcceleration[2] * linearAcceleration[2])
 
     fun processPressure(event: SensorEvent) {
         hasBarometer = true

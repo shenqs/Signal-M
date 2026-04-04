@@ -602,9 +602,9 @@ class MainActivity : AppCompatActivity() {
         container.removeAllViews()
 
         val sensors = listOf(
-            Triple("线性加速度", linearAccelSensor != null, speedCalculator.getSpeed().acceleration),
-            Triple("重力", gravitySensor != null, null),
-            Triple("加速度计", accelerometerSensor != null, null),
+            Triple("线性加速度", linearAccelSensor != null, speedCalculator.getLinearAccelMagnitude()),
+            Triple("重力", gravitySensor != null, speedCalculator.getGravityMagnitude()),
+            Triple("加速度计", accelerometerSensor != null, speedCalculator.getSpeed().acceleration),
             Triple("陀螺仪", gyroscopeSensor != null, speedCalculator.getGyroMagnitude()),
             Triple("磁力计", magnetometerSensor != null, speedCalculator.getMagMagnitude()),
             Triple("气压计", pressureSensor != null, speedCalculator.getSpeed().pressure),
@@ -641,6 +641,8 @@ class MainActivity : AppCompatActivity() {
             if (available && value != null) {
                 val v = value as Float
                 valueView.text = when (name) {
+                    "线性加速度" -> String.format("%.2f m/s²", v)
+                    "重力" -> String.format("%.2f m/s²", v)
                     "加速度计" -> String.format("%.2f m/s²", v)
                     "陀螺仪" -> String.format("%.2f rad/s", v)
                     "磁力计" -> String.format("%.1f μT", v)
