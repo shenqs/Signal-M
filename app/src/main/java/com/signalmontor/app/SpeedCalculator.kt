@@ -1,23 +1,19 @@
 package com.signalmontor.app
 
+import android.content.Context
+import android.hardware.GeomagneticField
 import android.hardware.Sensor
 import android.hardware.SensorEvent
+import android.hardware.SensorManager
 import kotlin.math.*
 
 class SpeedCalculator {
 
     companion object {
         private const val GRAVITY = 9.80665f
-        private const val LOW_PASS_ALPHA = 0.08f
         private const val ACCEL_WINDOW_SIZE = 40
         private const val SEA_LEVEL_PRESSURE_HPA = 1013.25f
         private const val TEMPERATURE_SMOOTH_ALPHA = 0.2f
-
-        private const val KALMAN_Q = 0.001f
-        private const val KALMAN_R = 0.1f
-        private const val ALTITUDE_SMOOTH_ALPHA = 0.15f
-        private const val GPS_ALTITUDE_WARMUP = 5
-        private const val FLOOR_HEIGHT_M = 3.0f
 
         private const val SPEED_SMOOTH_ALPHA = 0.08f
         private const val BEARING_SMOOTH_ALPHA = 0.05f
@@ -30,21 +26,20 @@ class SpeedCalculator {
         private const val SPEED_DIFF_THRESHOLD = 150f
         private const val MAX_DELTA_PER_CYCLE = 50f
         private const val STEP_LENGTH_M = 0.75f
+        private const val STEP_DETECT_THRESHOLD = 1.5f
+        private const val STEP_MIN_INTERVAL_MS = 180L
+        private const val STEP_FREQ_DECAY_ALPHA = 0.02f
 
-        private const val KF_PROCESS_NOISE = 0.5f
-        private const val KF_MEASUREMENT_NOISE_BASE = 10f
-        private const val KF_INITIAL_ERROR = 100f
+        // Low-pass filter coefficients for compass
+        private const val MAG_LOW_PASS_ALPHA = 0.2f
+        private const val ACCEL_LOW_PASS_ALPHA = 0.1f
     }
 
-    private var kfSpeed = 0f
-    private var kfError = KF_INITIAL_ERROR
-    private var kfProcessNoise = KF_PROCESS_NOISE
-    private var lastKfTime = 0L
-
+    // Pressure Kalman filter
     private var kalmanP = 0f
     private var kalmanX = 0f
-    private var kalmanR = KALMAN_R
-    private var kalmanQ = KALMAN_Q
+    private var kalmanR = 0.1f
+    private var kalmanQ = 0.001f
     private var kalmanReady = false
 
     private var basePressure = 0f
@@ -54,30 +49,41 @@ class SpeedCalculator {
 
     private var lastUpdate = 0L
 
+    // Accelerometer
     private var gravity = floatArrayOf(0f, 0f, 0f)
     private var linearAcceleration = floatArrayOf(0f, 0f, 0f)
-
     private val accelHistory = mutableListOf<Float>()
     private var smoothedAcceleration = 0f
     private var currentAcceleration = 0f
-    private var horizontalAccel = 0f
 
+    // Compass - sensor fusion state
     private var currentBearing = 0f
     private var gpsBearing = 0f
     private var gpsAcceleration = 0f
     private var lastGpsSpeedForAccel = 0f
     private var lastGpsSpeedTime = 0L
 
+    // Step detection
     private var stepCount = 0
     private var lastStepTime = 0L
     private var stepFrequency = 0f
     private var estimatedStepSpeed = 0f
+    private val stepIntervalHistory = mutableListOf<Float>()
+    private val STEP_HISTORY_MAX = 5
+    private var smoothedStepFrequency = 0f
+    private var lastPeakAccel = 0f
+    private var lastStepDirection = 0f
 
+    // Sensor fusion: accelerometer + magnetometer
     private var magneticFieldValues = floatArrayOf(0f, 0f, 0f)
     private var accelerometerValues = floatArrayOf(0f, 0f, 0f)
+    private var filteredMag = floatArrayOf(0f, 0f, 0f)
+    private var filteredAccel = floatArrayOf(0f, 0f, 0f)
     private var rotationMatrix = FloatArray(9)
+    private var inclinationMatrix = FloatArray(9)
     private var orientationAngles = FloatArray(3)
 
+    // GPS speed
     private var gpsSpeed = 0f
     private var gpsAccuracy = 0f
     private var lastGpsSpeed = 0f
@@ -88,6 +94,7 @@ class SpeedCalculator {
     private var hasGpsFix = false
     private var lastGpsUpdateTime = 0L
 
+    // Pressure / altitude
     private var currentPressure = 0f
     private var smoothedPressure = 0f
     private var currentTemperature = 0f
@@ -106,6 +113,7 @@ class SpeedCalculator {
     private var altitudeHistory = mutableListOf<Float>()
     private val ALTITUDE_HISTORY_MAX = 60
 
+    // Gyroscope (for display only)
     private var gyroX = 0f
     private var gyroY = 0f
     private var gyroZ = 0f
@@ -113,10 +121,54 @@ class SpeedCalculator {
     private var magY = 0f
     private var magZ = 0f
 
+    // Magnetic declination for true north
+    private var magneticDeclination = 0f
+    private var magSensorAccuracy = SensorManager.SENSOR_STATUS_ACCURACY_HIGH
+    private var lastLocationLat = 0.0
+    private var lastLocationLon = 0.0
+
+    fun setMagneticDeclination(declination: Float) {
+        magneticDeclination = declination
+    }
+
+    fun updateMagneticDeclination(lat: Double, lon: Double, altMeters: Float) {
+        lastLocationLat = lat
+        lastLocationLon = lon
+        try {
+            val geoField = GeomagneticField(
+                lat.toFloat(),
+                lon.toFloat(),
+                altMeters,
+                System.currentTimeMillis()
+            )
+            magneticDeclination = geoField.declination
+        } catch (e: Exception) {
+            // Ignore, use previous declination
+        }
+    }
+
+    fun setLocation(lat: Double, lon: Double) {
+        lastLocationLat = lat
+        lastLocationLon = lon
+    }
+
+    fun getMagSensorAccuracy(): Int = magSensorAccuracy
+
+    fun onMagAccuracyChanged(accuracy: Int) {
+        magSensorAccuracy = accuracy
+    }
+
     fun processGravity(event: SensorEvent) {
         gravity[0] = event.values[0]
         gravity[1] = event.values[1]
         gravity[2] = event.values[2]
+
+        // Update accelerometer values for compass rotation matrix
+        accelerometerValues[0] = gravity[0]
+        accelerometerValues[1] = gravity[1]
+        accelerometerValues[2] = gravity[2]
+
+        updateCompassBearing()
     }
 
     fun processLinearAcceleration(event: SensorEvent) {
@@ -152,34 +204,87 @@ class SpeedCalculator {
         val now = event.timestamp / 1_000_000
         lastUpdate = now
 
-        if (avgAccel > 2.0f) {
-            val nowMs = System.currentTimeMillis()
-            if (nowMs - lastStepTime > 200) {
-                stepCount++
-                if (lastStepTime > 0) {
-                    val stepInterval = (nowMs - lastStepTime) / 1000f
-                    stepFrequency = 1f / stepInterval
-                    estimatedStepSpeed = stepFrequency * STEP_LENGTH_M
+        detectStep(avgAccel, now)
+    }
+
+    private fun detectStep(avgAccel: Float, @Suppress("UNUSED_PARAMETER") now: Long) {
+        val nowMs = System.currentTimeMillis()
+        val timeSinceLastStep = nowMs - lastStepTime
+
+        // Peak detection: look for acceleration peaks above threshold
+        val isPeak = avgAccel > STEP_DETECT_THRESHOLD && avgAccel > lastPeakAccel
+        val minInterval = timeSinceLastStep > STEP_MIN_INTERVAL_MS
+
+        if (isPeak && minInterval) {
+            // Check for direction change to avoid double-counting
+            if (lastStepTime > 0) {
+                val stepInterval = timeSinceLastStep / 1000f
+                if (stepInterval > 0.3f && stepInterval < 3.0f) {
+                    stepIntervalHistory.add(stepInterval)
+                    if (stepIntervalHistory.size > STEP_HISTORY_MAX) {
+                        stepIntervalHistory.removeAt(0)
+                    }
+
+                    val avgInterval = stepIntervalHistory.average().toFloat()
+                    smoothedStepFrequency = 1f / avgInterval
+                    stepFrequency = smoothedStepFrequency
+
+                    val dynamicStepLength = getDynamicStepLength(smoothedStepFrequency)
+                    estimatedStepSpeed = smoothedStepFrequency * dynamicStepLength
                 }
-                lastStepTime = nowMs
+            }
+
+            stepCount++
+            lastStepTime = nowMs
+            lastPeakAccel = 0f
+        } else {
+            lastPeakAccel = maxOf(lastPeakAccel, avgAccel)
+
+            // Decay step frequency when no new steps detected
+            if (timeSinceLastStep > 2000) {
+                stepFrequency *= (1f - STEP_FREQ_DECAY_ALPHA)
+                if (stepFrequency < 0.1f) {
+                    stepFrequency = 0f
+                    estimatedStepSpeed = 0f
+                    stepIntervalHistory.clear()
+                }
             }
         }
     }
 
+    private fun getDynamicStepLength(freq: Float): Float {
+        return when {
+            freq < 1.2f -> 0.55f   // 慢走
+            freq < 1.6f -> 0.65f   // 正常步行
+            freq < 2.0f -> 0.75f   // 快走
+            freq < 2.5f -> 0.95f   // 慢跑
+            freq < 3.0f -> 1.10f   // 跑步
+            else -> 1.20f           // 快速跑
+        }
+    }
+
     fun processAccelerometer(event: SensorEvent) {
-        gravity[0] = lowPass(event.values[0], gravity[0])
-        gravity[1] = lowPass(event.values[1], gravity[1])
-        gravity[2] = lowPass(event.values[2], gravity[2])
+        // Low-pass filter accelerometer data to reduce jitter
+        filteredAccel[0] = lowPass(event.values[0], filteredAccel[0], ACCEL_LOW_PASS_ALPHA)
+        filteredAccel[1] = lowPass(event.values[1], filteredAccel[1], ACCEL_LOW_PASS_ALPHA)
+        filteredAccel[2] = lowPass(event.values[2], filteredAccel[2], ACCEL_LOW_PASS_ALPHA)
 
-        linearAcceleration[0] = event.values[0] - gravity[0]
-        linearAcceleration[1] = event.values[1] - gravity[1]
-        linearAcceleration[2] = event.values[2] - gravity[2]
+        accelerometerValues[0] = filteredAccel[0]
+        accelerometerValues[1] = filteredAccel[1]
+        accelerometerValues[2] = filteredAccel[2]
 
-        val rawMag = sqrt(
-            linearAcceleration[0] * linearAcceleration[0] +
-            linearAcceleration[1] * linearAcceleration[1] +
-            linearAcceleration[2] * linearAcceleration[2]
-        )
+        gravity[0] = filteredAccel[0]
+        gravity[1] = filteredAccel[1]
+        gravity[2] = filteredAccel[2]
+
+        val linearX = event.values[0] - filteredAccel[0]
+        val linearY = event.values[1] - filteredAccel[1]
+        val linearZ = event.values[2] - filteredAccel[2]
+        linearAcceleration[0] = linearX
+        linearAcceleration[1] = linearY
+        linearAcceleration[2] = linearZ
+
+        val rawMag = sqrt(linearX * linearX + linearY * linearY + linearZ * linearZ)
 
         accelHistory.add(rawMag)
         if (accelHistory.size > ACCEL_WINDOW_SIZE) {
@@ -200,65 +305,72 @@ class SpeedCalculator {
 
         currentAcceleration = avgAccel * GRAVITY
 
-        horizontalAccel = sqrt(
-            linearAcceleration[0] * linearAcceleration[0] +
-            linearAcceleration[1] * linearAcceleration[1]
-        )
-
         val now = event.timestamp / 1_000_000
-        if (lastKfTime > 0) {
-            val dtKf = (now - lastKfTime) / 1000f
-            if (dtKf > 0 && dtKf < 1.0f && !hasGpsFix) {
-                kfSpeed += horizontalAccel * dtKf
-                kfError += kfProcessNoise * dtKf
-            }
-        }
-        lastKfTime = now
         lastUpdate = now
 
-        if (avgAccel > 2.0f) {
-            val nowMs = System.currentTimeMillis()
-            if (nowMs - lastStepTime > 200) {
-                stepCount++
-                if (lastStepTime > 0) {
-                    val stepInterval = (nowMs - lastStepTime) / 1000f
-                    stepFrequency = 1f / stepInterval
-                    estimatedStepSpeed = stepFrequency * STEP_LENGTH_M
-                }
-                lastStepTime = nowMs
-            }
-        }
+        detectStep(avgAccel, now)
 
-        accelerometerValues[0] = event.values[0]
-        accelerometerValues[1] = event.values[1]
-        accelerometerValues[2] = event.values[2]
+        // Update compass bearing when we have both accel and mag data
+        updateCompassBearing()
     }
 
     fun processGyroscope(event: SensorEvent) {
         gyroX = event.values[0]
         gyroY = event.values[1]
         gyroZ = event.values[2]
-
-        if (SensorManagerCompat.getRotationMatrix(
-                rotationMatrix, null,
-                accelerometerValues, magneticFieldValues
-            )
-        ) {
-            SensorManagerCompat.getOrientation(rotationMatrix, orientationAngles)
-            val sensorBearing = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
-            if (!hasGpsFix) {
-                currentBearing = if (sensorBearing < 0) sensorBearing + 360f else sensorBearing
-            }
-        }
     }
 
     fun processMagneticField(event: SensorEvent) {
-        magX = event.values[0]
-        magY = event.values[1]
-        magZ = event.values[2]
-        magneticFieldValues[0] = event.values[0]
-        magneticFieldValues[1] = event.values[1]
-        magneticFieldValues[2] = event.values[2]
+        // Low-pass filter magnetometer data to reduce jitter
+        filteredMag[0] = lowPass(event.values[0], filteredMag[0], MAG_LOW_PASS_ALPHA)
+        filteredMag[1] = lowPass(event.values[1], filteredMag[1], MAG_LOW_PASS_ALPHA)
+        filteredMag[2] = lowPass(event.values[2], filteredMag[2], MAG_LOW_PASS_ALPHA)
+
+        magX = filteredMag[0]
+        magY = filteredMag[1]
+        magZ = filteredMag[2]
+        magneticFieldValues[0] = filteredMag[0]
+        magneticFieldValues[1] = filteredMag[1]
+        magneticFieldValues[2] = filteredMag[2]
+
+        // Update compass bearing when we have both accel and mag data
+        updateCompassBearing()
+    }
+
+    /**
+     * Sensor fusion: combines accelerometer (gravity direction) and magnetometer (magnetic north)
+     * to compute the device's orientation relative to Earth's coordinate system.
+     *
+     * Uses Android's built-in SensorManager methods:
+     * 1. getRotationMatrix() - computes rotation matrix from device to Earth coordinates
+     * 2. getOrientation() - extracts azimuth, pitch, roll from the rotation matrix
+     * 3. Applies magnetic declination to convert magnetic north to true north
+     */
+    private fun updateCompassBearing() {
+        // Compute rotation matrix from accelerometer + magnetometer
+        val success = SensorManager.getRotationMatrix(
+            rotationMatrix,
+            inclinationMatrix,
+            accelerometerValues,
+            magneticFieldValues
+        )
+
+        if (success) {
+            // Extract orientation angles: azimuth (bearing), pitch, roll
+            SensorManager.getOrientation(rotationMatrix, orientationAngles)
+
+            // Convert azimuth from radians to degrees
+            var azimuth = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
+
+            // Apply magnetic declination to get true north
+            azimuth += magneticDeclination
+
+            // Normalize to 0-360 range
+            if (azimuth < 0f) azimuth += 360f
+            if (azimuth >= 360f) azimuth -= 360f
+
+            currentBearing = azimuth
+        }
     }
 
     fun getGyroMagnitude(): Float = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ)
@@ -273,7 +385,7 @@ class SpeedCalculator {
 
         smoothedPressure = kalmanFilter(rawPressure)
 
-        if (gpsAltitude != 0f && gpsAltitudeSampleCount >= GPS_ALTITUDE_WARMUP && !baseAltitudeSet) {
+        if (gpsAltitude != 0f && gpsAltitudeSampleCount >= 5 && !baseAltitudeSet) {
             baseAltitudeSet = true
             basePressure = smoothedPressure
             baseAltitude = gpsAltitude
@@ -319,7 +431,7 @@ class SpeedCalculator {
         gpsAltitude = altitudeM
         gpsAltitudeSampleCount++
 
-        if (gpsAltitudeSampleCount >= GPS_ALTITUDE_WARMUP && !baseAltitudeSet) {
+        if (gpsAltitudeSampleCount >= 5 && !baseAltitudeSet) {
             baseAltitudeSet = true
             basePressure = smoothedPressure
             baseAltitude = gpsAltitude
@@ -327,7 +439,7 @@ class SpeedCalculator {
 
         if (!hasBarometer) {
             smoothedAltitude = if (smoothedAltitude == 0f) altitudeM else {
-                smoothedAltitude + ALTITUDE_SMOOTH_ALPHA * (altitudeM - smoothedAltitude)
+                smoothedAltitude + 0.15f * (altitudeM - smoothedAltitude)
             }
             currentAltitude = smoothedAltitude
             updateAltitudeStats(smoothedAltitude)
@@ -349,7 +461,7 @@ class SpeedCalculator {
         if (smoothedAltitude == 0f) {
             smoothedAltitude = calibratedAltitude
         } else {
-            smoothedAltitude = smoothedAltitude + ALTITUDE_SMOOTH_ALPHA * (calibratedAltitude - smoothedAltitude)
+            smoothedAltitude = smoothedAltitude + 0.15f * (calibratedAltitude - smoothedAltitude)
         }
 
         if (hasBarometer && gpsAltitude != 0f && baseAltitudeSet) {
@@ -412,8 +524,30 @@ class SpeedCalculator {
     }
 
     fun updateGpsSpeed(speedMps: Float, accuracy: Float) {
-        if (speedMps < 0f || speedMps > GPS_SPEED_MAX_MS) {
+        if (speedMps < 0f || speedMps > 50f) {
             hasGpsFix = false
+            lastGpsUpdateTime = System.currentTimeMillis()
+            return
+        }
+
+        // Ignore GPS drift when stationary: require minimum 1.5 m/s (5.4 km/h)
+        val minGpsSpeed = 1.5f
+        val isStationary = speedMps < minGpsSpeed || accuracy > 30f
+
+        val gpsSpeedKmh = speedMps * 3.6f
+        val diff = abs(gpsSpeedKmh - displaySpeed)
+        val maxAllowedDiff = maxOf(10f, displaySpeed * 0.15f)
+
+        lastGpsUpdateTime = System.currentTimeMillis()
+
+        if (isStationary) {
+            // GPS reports stationary - don't update speed value, just mark GPS as not providing valid speed
+            hasGpsFix = false
+            return
+        }
+
+        if (diff > maxAllowedDiff) {
+            hasGpsFix = accuracy < GPS_ACCURACY_OK
             return
         }
 
@@ -421,7 +555,6 @@ class SpeedCalculator {
         gpsAccuracy = accuracy
         lastGpsSpeed = speedMps
         hasGpsFix = accuracy < GPS_ACCURACY_OK
-        lastGpsUpdateTime = System.currentTimeMillis()
 
         if (hasGpsFix) {
             val nowMs = System.currentTimeMillis()
@@ -443,20 +576,8 @@ class SpeedCalculator {
         }
     }
 
-    fun updateLocationSpeed(speedMps: Float) {
-        fusedSpeedCalculation(speedMps)
-    }
-
-    private fun fusedSpeedCalculation(gpsSpeedValue: Float) {
-        if (gpsSpeedValue < 0f || gpsSpeedValue > GPS_SPEED_MAX_MS) return
-
-        val gpsSpeedKmh = gpsSpeedValue * 3.6f
-        val speedDiff = abs(gpsSpeedKmh - displaySpeed)
-        if (displaySpeed > 5f && speedDiff > SPEED_DIFF_THRESHOLD) return
-
-        val weight = if (gpsAccuracy < GPS_ACCURACY_GOOD) 0.9f else 0.7f
-        displaySpeed = weight * gpsSpeedKmh + (1f - weight) * displaySpeed
-        displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
+    fun updateLocationSpeed(@Suppress("UNUSED_PARAMETER") speedMps: Float) {
+        // All speed calculation handled in getSpeed()
     }
 
     fun getSpeed(): SpeedData {
@@ -467,24 +588,43 @@ class SpeedCalculator {
 
         var rawSpeedKmh = 0f
         if (gpsValid && gpsSpeedKmh >= 0f && gpsSpeedKmh < DISPLAY_SPEED_MAX) {
-            val speedDiff = abs(gpsSpeedKmh - displaySpeed)
-            if (speedDiff < SPEED_DIFF_THRESHOLD || displaySpeed < 1f) {
+            // GPS deceleration: always trust GPS when it reports lower speed
+            if (gpsSpeedKmh <= displaySpeed) {
                 rawSpeedKmh = gpsSpeedKmh
             } else {
-                rawSpeedKmh = displaySpeed
+                // GPS acceleration: only accept if within reasonable range
+                val speedDiff = gpsSpeedKmh - displaySpeed
+                val maxAllowedDiff = maxOf(15f, displaySpeed * 0.2f)
+                if (speedDiff < maxAllowedDiff) {
+                    rawSpeedKmh = gpsSpeedKmh
+                } else {
+                    rawSpeedKmh = displaySpeed
+                }
             }
         } else if (stepFrequency > 0.5f) {
             rawSpeedKmh = estimatedStepSpeed * 3.6f
+        } else {
+            rawSpeedKmh = 0f
         }
 
         val effectiveBearing = if (gpsValid && gpsBearing > 0f) gpsBearing else currentBearing
         val effectiveAccel = if (gpsValid) gpsAcceleration else smoothedAcceleration * GRAVITY
 
         val prevDisplaySpeed = displaySpeed
-        displaySpeed = displaySpeed + SPEED_SMOOTH_ALPHA * (rawSpeedKmh - displaySpeed)
 
-        displaySpeed = displaySpeed.coerceIn(prevDisplaySpeed - MAX_DELTA_PER_CYCLE, prevDisplaySpeed + MAX_DELTA_PER_CYCLE)
+        if (gpsValid) {
+            // GPS deceleration: very fast response (alpha=0.5)
+            val smoothingAlpha = if (rawSpeedKmh < displaySpeed) 0.5f else SPEED_SMOOTH_ALPHA
+            displaySpeed = displaySpeed + smoothingAlpha * (rawSpeedKmh - displaySpeed)
+            displaySpeed = displaySpeed.coerceIn(prevDisplaySpeed - 50f, prevDisplaySpeed + 15f)
+        } else {
+            // No GPS: fast decay to zero
+            displaySpeed = displaySpeed * 0.5f
+            displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
+        }
         displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
+
+        if (displaySpeed < 0.5f) displaySpeed = 0f
         displayBearing = smoothBearing(displayBearing, effectiveBearing, BEARING_SMOOTH_ALPHA)
         displayAcceleration = displayAcceleration + 0.05f * (effectiveAccel - displayAcceleration)
 
@@ -545,17 +685,17 @@ class SpeedCalculator {
             altitude < -10f -> "死海以下 (海平面下)"
             altitude < 0f -> "海平面以下"
             altitude < 3f -> "海平面附近 (沙滩/码头)"
-            altitude < 10f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层楼高"
-            altitude < 30f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层住宅楼"
-            altitude < 50f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层高楼"
-            altitude < 80f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 如普通写字楼"
-            altitude < 100f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 如高层住宅"
-            altitude < 150f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 如上海金茂大厦低区"
-            altitude < 200f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 如深圳地王大厦"
-            altitude < 300f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 如东方明珠塔"
-            altitude < 400f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 如上海中心大厦"
-            altitude < 500f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 如广州塔基座"
-            altitude < 600f -> "约${(altitude / FLOOR_HEIGHT_M).toInt()}层, 超高建筑群"
+            altitude < 10f -> "约${(altitude / 3.0f).toInt()}层楼高"
+            altitude < 30f -> "约${(altitude / 3.0f).toInt()}层住宅楼"
+            altitude < 50f -> "约${(altitude / 3.0f).toInt()}层高楼"
+            altitude < 80f -> "约${(altitude / 3.0f).toInt()}层, 如普通写字楼"
+            altitude < 100f -> "约${(altitude / 3.0f).toInt()}层, 如高层住宅"
+            altitude < 150f -> "约${(altitude / 3.0f).toInt()}层, 如上海金茂大厦低区"
+            altitude < 200f -> "约${(altitude / 3.0f).toInt()}层, 如深圳地王大厦"
+            altitude < 300f -> "约${(altitude / 3.0f).toInt()}层, 如东方明珠塔"
+            altitude < 400f -> "约${(altitude / 3.0f).toInt()}层, 如上海中心大厦"
+            altitude < 500f -> "约${(altitude / 3.0f).toInt()}层, 如广州塔基座"
+            altitude < 600f -> "约${(altitude / 3.0f).toInt()}层, 超高建筑群"
             altitude < 800f -> "小山丘高度"
             altitude < 1000f -> "低山区域"
             altitude < 1500f -> "中山区域, 如庐山"
@@ -673,21 +813,17 @@ class SpeedCalculator {
         return minOf(1f, quality)
     }
 
-    private fun lowPass(current: Float, previous: Float): Float {
-        return previous + LOW_PASS_ALPHA * (current - previous)
+    private fun lowPass(current: Float, previous: Float, alpha: Float): Float {
+        return previous + alpha * (current - previous)
     }
 
     fun reset() {
         lastUpdate = 0L
-        lastKfTime = 0L
-        kfSpeed = 0f
-        kfError = KF_INITIAL_ERROR
         gravity = floatArrayOf(0f, 0f, 0f)
         linearAcceleration = floatArrayOf(0f, 0f, 0f)
         accelHistory.clear()
         smoothedAcceleration = 0f
         currentAcceleration = 0f
-        horizontalAccel = 0f
         currentBearing = 0f
         gpsBearing = 0f
         gpsAcceleration = 0f
@@ -697,6 +833,10 @@ class SpeedCalculator {
         lastStepTime = 0L
         stepFrequency = 0f
         estimatedStepSpeed = 0f
+        stepIntervalHistory.clear()
+        smoothedStepFrequency = 0f
+        lastPeakAccel = 0f
+        lastStepDirection = 0f
         gpsSpeed = 0f
         gpsAccuracy = 0f
         lastGpsSpeed = 0f
@@ -766,58 +906,4 @@ enum class MovementState(val label: String, val icon: String, val color: Int) {
     CYCLING("骑行", "\uD83D\uDEB2", 0xFF2196F3.toInt()),
     DRIVING("驾驶", "\uD83D\uDE97", 0xFF9C27B0.toInt()),
     HIGH_SPEED("高速", "\u26A1", 0xFFF44336.toInt())
-}
-
-object SensorManagerCompat {
-    fun getRotationMatrix(
-        R: FloatArray,
-        I: FloatArray?,
-        gravity: FloatArray,
-        geomagnetic: FloatArray
-    ): Boolean {
-        val Ax = gravity[0]
-        val Ay = gravity[1]
-        val Az = gravity[2]
-
-        val norm = sqrt(Ax * Ax + Ay * Ay + Az * Az)
-        if (norm < 0.1f) return false
-
-        val Ex = geomagnetic[0]
-        val Ey = geomagnetic[1]
-        val Ez = geomagnetic[2]
-
-        val Hx = Ey * Az - Ez * Ay
-        val Hy = Ez * Ax - Ex * Az
-        val Hz = Ex * Ay - Ey * Ax
-
-        val normH = sqrt(Hx * Hx + Hy * Hy + Hz * Hz)
-        if (normH < 0.1f) return false
-
-        val invNormH = 1f / normH
-        val HxN = Hx * invNormH
-        val HyN = Hy * invNormH
-        val HzN = Hz * invNormH
-
-        val invNormA = 1f / norm
-        val AxN = Ax * invNormA
-        val AyN = Ay * invNormA
-        val AzN = Az * invNormA
-
-        val Mx = AyN * HzN - AzN * HyN
-        val My = AzN * HxN - AxN * HzN
-        val Mz = AxN * HyN - AyN * HxN
-
-        R[0] = HxN; R[1] = HyN; R[2] = HzN
-        R[3] = Mx;  R[4] = My;  R[5] = Mz
-        R[6] = AxN; R[7] = AyN; R[8] = AzN
-
-        return true
-    }
-
-    fun getOrientation(R: FloatArray, values: FloatArray): FloatArray {
-        values[0] = atan2(R[1].toDouble(), R[4].toDouble()).toFloat()
-        values[1] = asin((-R[7]).toDouble()).toFloat()
-        values[2] = atan2((-R[6]).toDouble(), R[8].toDouble()).toFloat()
-        return values
-    }
 }

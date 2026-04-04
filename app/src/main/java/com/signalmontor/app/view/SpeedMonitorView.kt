@@ -170,19 +170,18 @@ class SpeedMonitorView @JvmOverloads constructor(
         val headingTop = padding
         headingRect.set(headingLeft, headingTop, headingLeft + gaugeSize, headingTop + gaugeSize)
 
-        val gaugeTextSize = gaugeSize * 0.15f
-        speedTextPaint.textSize = gaugeTextSize
-        unitTextPaint.textSize = gaugeTextSize * 0.36f
-        stateTextPaint.textSize = gaugeTextSize * 0.30f
-        descTextPaint.textSize = gaugeTextSize * 0.26f
-        compassTextPaint.textSize = gaugeSize * 0.12f
-        headingTextPaint.textSize = gaugeSize * 0.08f
-        infoLabelPaint.textSize = w * 0.030f
-        infoValuePaint.textSize = w * 0.030f
+        // All text sizes based on card width for consistency
+        speedTextPaint.textSize = w * 0.095f
+        unitTextPaint.textSize = w * 0.034f
+        stateTextPaint.textSize = w * 0.032f
+        descTextPaint.textSize = w * 0.032f
+        compassTextPaint.textSize = w * 0.045f
+        headingTextPaint.textSize = w * 0.040f
+        infoLabelPaint.textSize = w * 0.034f
+        infoValuePaint.textSize = w * 0.034f
 
         descY1 = speedRect.bottom + 12f
         descY2 = descY1 + descTextPaint.textSize + 6f
-        compassDescY = headingRect.bottom + 12f
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -218,38 +217,81 @@ class SpeedMonitorView @JvmOverloads constructor(
     private fun drawSpeedGauge(canvas: Canvas, data: SpeedCalculator.SpeedData) {
         val cx = speedRect.centerX()
         val cy = speedRect.centerY()
+        val r = speedRect.width() / 2f
 
+        // Speed arc background
         canvas.drawArc(speedRect, 135f, 270f, false, speedArcBgPaint)
+
+        // Speed arc fill
         speedArcPaint.color = currentColor
         val sweep = (animatedSpeed / 200f) * 270f
         if (sweep > 0) {
             canvas.drawArc(speedRect, 135f, sweep, false, speedArcPaint)
         }
 
+        // Tick marks on the arc
+        val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+            strokeCap = Paint.Cap.ROUND
+        }
+        for (i in 0..20) {
+            val angle = 135f + i * 13.5f
+            val rad = Math.toRadians(angle.toDouble())
+            val isMajor = i % 5 == 0
+            val tickLen = if (isMajor) 10f else 4f
+            tickPaint.strokeWidth = if (isMajor) 2f else 1f
+            tickPaint.color = if (isMajor) 0xFF757575.toInt() else 0xFFBDBDBD.toInt()
+
+            val x1 = (cx + (r - tickLen) * cos(rad)).toFloat()
+            val y1 = (cy + (r - tickLen) * sin(rad)).toFloat()
+            val x2 = (cx + r * cos(rad)).toFloat()
+            val y2 = (cy + r * sin(rad)).toFloat()
+            canvas.drawLine(x1, y1, x2, y2, tickPaint)
+        }
+
+        // Speed number - centered in arc, sized to fit
+        val speedTextSize = r * 0.45f
+        speedTextPaint.textSize = speedTextSize
         speedTextPaint.color = currentColor
-        canvas.drawText(String.format("%.1f", data.speed), cx, cy + speedTextPaint.textSize / 3, speedTextPaint)
+        speedTextPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText(String.format("%.1f", data.speed), cx, cy + speedTextSize / 3, speedTextPaint)
 
+        // Unit - below speed number
+        val unitSize = r * 0.18f
+        unitTextPaint.textSize = unitSize
         unitTextPaint.color = 0xFF757575.toInt()
-        canvas.drawText("km/h", cx, cy + speedTextPaint.textSize + unitTextPaint.textSize + 4, unitTextPaint)
+        unitTextPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("km/h", cx, cy + speedTextSize + unitSize + 4, unitTextPaint)
 
+        // Movement state - below unit
+        val stateSize = r * 0.16f
+        stateTextPaint.textSize = stateSize
         stateTextPaint.color = data.movementState.color
-        canvas.drawText("${data.movementState.icon} ${data.movementState.label}", cx, cy + speedTextPaint.textSize + unitTextPaint.textSize + 20, stateTextPaint)
+        stateTextPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("${data.movementState.icon} ${data.movementState.label}", cx, cy + speedTextSize + unitSize + stateSize + 8, stateTextPaint)
 
+        // Description texts below the gauge
+        val descStartY = speedRect.bottom + 10f
+        val descTextSize = width * 0.032f
+        descTextPaint.textSize = descTextSize
         descTextPaint.textAlign = Paint.Align.CENTER
         descTextPaint.color = 0xFF4CAF50.toInt()
-        canvas.drawText(data.speedDescription, cx, descY1, descTextPaint)
+        canvas.drawText(data.speedDescription, cx, descStartY + descTextSize, descTextPaint)
 
         descTextPaint.color = 0xFF2196F3.toInt()
-        canvas.drawText(data.altitudeDescription, cx, descY2, descTextPaint)
+        canvas.drawText(data.altitudeDescription, cx, descStartY + descTextSize * 2 + 8, descTextPaint)
     }
 
     private fun drawHeadingGauge(canvas: Canvas, data: SpeedCalculator.SpeedData) {
         val cx = headingRect.centerX()
         val cy = headingRect.centerY()
-        val r = headingRect.width() / 2f - 5f
+        val r = headingRect.width() / 2f - 8f
 
-        canvas.drawCircle(cx, cy, r + 2f, headingArcBgPaint)
+        // Outer ring
+        canvas.drawCircle(cx, cy, r + 3f, headingArcBgPaint)
 
+        // Heading arc
         headingArcPaint.color = currentColor
         val headingSweep = (animatedHeading / 360f) * 360f
         canvas.drawArc(
@@ -257,42 +299,78 @@ class SpeedMonitorView @JvmOverloads constructor(
             -90f, headingSweep, false, headingArcPaint
         )
 
+        // Compass dial tick marks
+        val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+            strokeCap = Paint.Cap.ROUND
+        }
+        for (i in 0 until 36) {
+            val angle = i * 10f
+            val rad = Math.toRadians((angle - 90).toDouble())
+            val isMajor = angle % 90 == 0f
+            val isMid = angle % 45 == 0f
+            val tickLen = if (isMajor) 8f else if (isMid) 5f else 2f
+            tickPaint.strokeWidth = if (isMajor) 2f else 1f
+            tickPaint.color = if (isMajor) 0xFF424242.toInt() else 0xFFBDBDBD.toInt()
+
+            val x1 = (cx + (r - tickLen) * cos(rad)).toFloat()
+            val y1 = (cy + (r - tickLen) * sin(rad)).toFloat()
+            val x2 = (cx + r * cos(rad)).toFloat()
+            val y2 = (cy + r * sin(rad)).toFloat()
+            canvas.drawLine(x1, y1, x2, y2, tickPaint)
+        }
+
+        // N/S/E/W labels inside the dial
+        val labelR = r * 0.72f
+        compassTextPaint.textAlign = Paint.Align.CENTER
+
+        compassTextPaint.color = 0xFFF44336.toInt()
+        canvas.drawText("N", cx, cy - labelR + compassTextPaint.textSize / 3, compassTextPaint)
+
+        compassTextPaint.color = 0xFF757575.toInt()
+        canvas.drawText("S", cx, cy + labelR + compassTextPaint.textSize / 3, compassTextPaint)
+        canvas.drawText("E", cx + labelR, cy + compassTextPaint.textSize / 3, compassTextPaint)
+        canvas.drawText("W", cx - labelR, cy + compassTextPaint.textSize / 3, compassTextPaint)
+
+        // Red needle (rotates with bearing)
         canvas.save()
         canvas.rotate(data.bearing, cx, cy)
 
         compassPaint.color = 0xFFF44336.toInt()
         val arrowPath = Path()
-        arrowPath.moveTo(cx, cy - r * 0.55f)
-        arrowPath.lineTo(cx - r * 0.16f, cy + r * 0.10f)
-        arrowPath.lineTo(cx + r * 0.16f, cy + r * 0.10f)
+        arrowPath.moveTo(cx, cy - r * 0.50f)
+        arrowPath.lineTo(cx - r * 0.14f, cy + r * 0.08f)
+        arrowPath.lineTo(cx + r * 0.14f, cy + r * 0.08f)
         arrowPath.close()
         canvas.drawPath(arrowPath, compassPaint)
 
-        compassPaint.color = 0xFFBDBDBD.toInt()
+        compassPaint.color = 0xFF9E9E9E.toInt()
         val tailPath = Path()
-        tailPath.moveTo(cx, cy + r * 0.50f)
-        tailPath.lineTo(cx - r * 0.10f, cy)
-        tailPath.lineTo(cx + r * 0.10f, cy)
+        tailPath.moveTo(cx, cy + r * 0.45f)
+        tailPath.lineTo(cx - r * 0.08f, cy)
+        tailPath.lineTo(cx + r * 0.08f, cy)
         tailPath.close()
         canvas.drawPath(tailPath, compassPaint)
 
+        // Center dot
+        compassPaint.color = 0xFFFFFFFF.toInt()
+        canvas.drawCircle(cx, cy, r * 0.06f, compassPaint)
+        compassPaint.color = 0xFF424242.toInt()
+        canvas.drawCircle(cx, cy, r * 0.03f, compassPaint)
+
         canvas.restore()
 
-        compassTextPaint.textSize = r * 0.22f
-        compassTextPaint.color = 0xFFF44336.toInt()
-        canvas.drawText("N", cx, cy - r - 3f, compassTextPaint)
-
-        compassTextPaint.color = 0xFF757575.toInt()
-        canvas.drawText("S", cx, cy + r + 12f, compassTextPaint)
-        canvas.drawText("E", cx + r + 10f, cy + compassTextPaint.textSize / 3, compassTextPaint)
-        canvas.drawText("W", cx - r - 10f, cy + compassTextPaint.textSize / 3, compassTextPaint)
-
+        // Degree text below compass
+        val textStartY = headingRect.bottom + 4f
+        headingTextPaint.textAlign = Paint.Align.CENTER
         headingTextPaint.color = 0xFF212121.toInt()
-        canvas.drawText(String.format("%.0f\u00B0", data.bearing), cx, cy + r + 26f, headingTextPaint)
+        canvas.drawText(String.format("%.0f\u00B0", data.bearing), cx, textStartY + headingTextPaint.textSize, headingTextPaint)
 
+        // Direction label below degree
         descTextPaint.textAlign = Paint.Align.CENTER
         descTextPaint.color = 0xFF757575.toInt()
-        canvas.drawText("方位: ${data.direction}", cx, compassDescY, descTextPaint)
+        canvas.drawText(data.direction, cx, textStartY + headingTextPaint.textSize + descTextPaint.textSize + 4f, descTextPaint)
     }
 
     private fun drawInfoSection(canvas: Canvas, data: SpeedCalculator.SpeedData, h: Float) {

@@ -171,7 +171,7 @@ class MainActivity : AppCompatActivity() {
                 when (event.sensor.type) {
                     Sensor.TYPE_LINEAR_ACCELERATION -> speedCalculator.processLinearAcceleration(event)
                     Sensor.TYPE_GRAVITY -> speedCalculator.processGravity(event)
-                    Sensor.TYPE_ACCELEROMETER -> if (linearAccelSensor == null) speedCalculator.processAccelerometer(event)
+                    Sensor.TYPE_ACCELEROMETER -> speedCalculator.processAccelerometer(event)
                     Sensor.TYPE_GYROSCOPE -> speedCalculator.processGyroscope(event)
                     Sensor.TYPE_MAGNETIC_FIELD -> speedCalculator.processMagneticField(event)
                     Sensor.TYPE_PRESSURE -> speedCalculator.processPressure(event)
@@ -180,7 +180,11 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { updateSpeedUI() }
             }
 
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                if (sensor?.type == Sensor.TYPE_MAGNETIC_FIELD) {
+                    speedCalculator.onMagAccuracyChanged(accuracy)
+                }
+            }
         }
     }
 
@@ -537,6 +541,11 @@ class MainActivity : AppCompatActivity() {
                 if (location.hasAltitude()) {
                     speedCalculator.updateGpsAltitude(location.altitude.toFloat())
                 }
+                speedCalculator.updateMagneticDeclination(
+                    location.latitude,
+                    location.longitude,
+                    if (location.hasAltitude()) location.altitude.toFloat() else 0f
+                )
                 runOnUiThread {
                     updatePositionSources()
                     updateSatelliteUI()
@@ -562,10 +571,9 @@ class MainActivity : AppCompatActivity() {
             gravitySensor?.let {
                 sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
             }
-            if (linearAccelSensor == null) {
-                accelerometerSensor?.let {
-                    sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
-                }
+            // Always register accelerometer for compass (rotation matrix needs gravity direction)
+            accelerometerSensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
             }
             gyroscopeSensor?.let {
                 sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
