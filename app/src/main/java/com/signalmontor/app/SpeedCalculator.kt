@@ -113,6 +113,12 @@ class SpeedCalculator {
     private var magY = 0f
     private var magZ = 0f
 
+    fun processGravity(event: SensorEvent) {
+        gravity[0] = event.values[0]
+        gravity[1] = event.values[1]
+        gravity[2] = event.values[2]
+    }
+
     fun processLinearAcceleration(event: SensorEvent) {
         linearAcceleration[0] = event.values[0]
         linearAcceleration[1] = event.values[1]

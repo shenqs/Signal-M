@@ -91,6 +91,7 @@ class MainActivity : AppCompatActivity() {
     private var temperatureSensor: Sensor? = null
     private var stepDetectorSensor: Sensor? = null
     private var linearAccelSensor: Sensor? = null
+    private var gravitySensor: Sensor? = null
 
     private var currentWeatherDesc = ""
     private var currentWeatherTemp = ""
@@ -157,6 +158,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun initSensors() {
         linearAccelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        gravitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GRAVITY)
         accelerometerSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscopeSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         magnetometerSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
@@ -168,6 +170,7 @@ class MainActivity : AppCompatActivity() {
             override fun onSensorChanged(event: SensorEvent) {
                 when (event.sensor.type) {
                     Sensor.TYPE_LINEAR_ACCELERATION -> speedCalculator.processLinearAcceleration(event)
+                    Sensor.TYPE_GRAVITY -> speedCalculator.processGravity(event)
                     Sensor.TYPE_ACCELEROMETER -> if (linearAccelSensor == null) speedCalculator.processAccelerometer(event)
                     Sensor.TYPE_GYROSCOPE -> speedCalculator.processGyroscope(event)
                     Sensor.TYPE_MAGNETIC_FIELD -> speedCalculator.processMagneticField(event)
@@ -556,6 +559,9 @@ class MainActivity : AppCompatActivity() {
             linearAccelSensor?.let {
                 sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
             }
+            gravitySensor?.let {
+                sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
+            }
             if (linearAccelSensor == null) {
                 accelerometerSensor?.let {
                     sensorManager?.registerListener(listener, it, SensorManager.SENSOR_DELAY_GAME)
@@ -597,6 +603,7 @@ class MainActivity : AppCompatActivity() {
 
         val sensors = listOf(
             Triple("线性加速度", linearAccelSensor != null, speedCalculator.getSpeed().acceleration),
+            Triple("重力", gravitySensor != null, null),
             Triple("加速度计", accelerometerSensor != null, null),
             Triple("陀螺仪", gyroscopeSensor != null, speedCalculator.getGyroMagnitude()),
             Triple("磁力计", magnetometerSensor != null, speedCalculator.getMagMagnitude()),
