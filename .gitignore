@@ -7,3 +7,8 @@ build/
 local.properties
 *.iml
 .DS_Store
+
+# Gradle
+gradle-8.9/
+*.zip
+gradle-8.9-bin.zip
