@@ -93,6 +93,9 @@ class MainActivity : AppCompatActivity() {
     private var linearAccelSensor: Sensor? = null
     private var gravitySensor: Sensor? = null
 
+    private var httpServer: ApkHttpServer? = null
+    private var downloadLogs = mutableListOf<String>()
+
     private var currentWeatherDesc = ""
     private var currentWeatherTemp = ""
     private var lastWeatherFetchTime = 0L
@@ -147,6 +150,34 @@ class MainActivity : AppCompatActivity() {
         standardsCard = findViewById(R.id.standardsCard)
         permissionBtn = findViewById(R.id.permissionBtn)
         speedMonitorView = findViewById(R.id.speedMonitorView)
+
+        httpServer = ApkHttpServer(this)
+        httpServer?.callback = object : ApkHttpServer.ServerCallback {
+            override fun onServerStarted(url: String) {
+                runOnUiThread {
+                    updateHttpServerUI(true, url)
+                    addDownloadLog("服务器已启动: $url")
+                }
+            }
+            override fun onServerStopped() {
+                runOnUiThread {
+                    updateHttpServerUI(false, "")
+                    addDownloadLog("服务器已停止")
+                }
+            }
+            override fun onDownloadStart(clientIp: String) {
+                runOnUiThread { addDownloadLog("📥 $clientIp 开始下载") }
+            }
+            override fun onDownloadProgress(clientIp: String, percent: Int) {
+                runOnUiThread { addDownloadLog("⏳ $clientIp 下载中 $percent%") }
+            }
+            override fun onDownloadComplete(clientIp: String) {
+                runOnUiThread { addDownloadLog("✅ $clientIp 下载完成") }
+            }
+            override fun onError(message: String) {
+                runOnUiThread { addDownloadLog("❌ 错误: $message") }
+            }
+        }
     }
 
     private fun initManagers() {
@@ -200,6 +231,27 @@ class MainActivity : AppCompatActivity() {
 
         permissionBtn.setOnClickListener {
             requestPermissions()
+        }
+
+        findViewById<Button>(R.id.httpServerToggleBtn).setOnClickListener {
+            if (httpServer?.isRunning() == true) {
+                httpServer?.stop()
+            } else {
+                val started = httpServer?.start(8080) ?: false
+                if (!started) {
+                    Toast.makeText(this, "启动服务器失败，请检查WiFi连接", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        findViewById<Button>(R.id.httpServerCopyBtn).setOnClickListener {
+            val url = httpServer?.getServerUrl() ?: ""
+            if (url.isNotEmpty()) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("APK下载地址", url)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "已复制: $url", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -552,6 +604,9 @@ class MainActivity : AppCompatActivity() {
                     updateSpeedUI()
                     fetchWeatherIfNeeded()
                     resolveRegion(location.latitude, location.longitude)
+                    
+                    val satellite3DView = findViewById<Satellite3DView>(R.id.satellite3DView)
+                    satellite3DView.updateUserPosition(location.latitude, location.longitude)
                 }
             }
 
@@ -1133,11 +1188,48 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         stopAutoRefresh()
         stopSensorListeners()
+        httpServer?.stop()
         try {
             gnssStatusCallback?.let { locationManager?.unregisterGnssStatusCallback(it) }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun updateHttpServerUI(isRunning: Boolean, url: String) {
+        val statusView = findViewById<TextView>(R.id.httpServerStatus)
+        val urlView = findViewById<TextView>(R.id.httpServerUrl)
+        val hintView = findViewById<TextView>(R.id.httpServerHint)
+        val toggleBtn = findViewById<Button>(R.id.httpServerToggleBtn)
+        val copyBtn = findViewById<Button>(R.id.httpServerCopyBtn)
+
+        if (isRunning) {
+            statusView.text = "运行中"
+            statusView.setTextColor(0xFF4CAF50.toInt())
+            urlView.text = url
+            urlView.visibility = View.VISIBLE
+            hintView.visibility = View.VISIBLE
+            toggleBtn.text = "停止服务"
+            copyBtn.visibility = View.VISIBLE
+        } else {
+            statusView.text = "未启动"
+            statusView.setTextColor(0xFF9E9E9E.toInt())
+            urlView.visibility = View.GONE
+            hintView.visibility = View.GONE
+            toggleBtn.text = "启动服务"
+            copyBtn.visibility = View.GONE
+        }
+    }
+
+    private fun addDownloadLog(message: String) {
+        val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+        val time = timeFormat.format(java.util.Date())
+        downloadLogs.add("[$time] $message")
+        if (downloadLogs.size > 10) downloadLogs.removeAt(0)
+
+        val logView = findViewById<TextView>(R.id.httpDownloadLog)
+        logView.text = downloadLogs.joinToString("\n")
+        logView.visibility = View.VISIBLE
     }
 
     data class WeatherData(

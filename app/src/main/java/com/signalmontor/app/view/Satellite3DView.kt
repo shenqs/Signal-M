@@ -22,6 +22,9 @@ class Satellite3DView @JvmOverloads constructor(
     private var desertRegions = listOf<DesertRegion>()
     private var iceCaps = listOf<IceCap>()
     private var userLocation: UserLocation? = null
+    private var userLat: Double = 0.0
+    private var userLon: Double = 0.0
+    private var hasUserPosition = false
 
     private var cx = 0f
     private var cy = 0f
@@ -30,9 +33,9 @@ class Satellite3DView @JvmOverloads constructor(
     private var vH = 0
 
     private var rX = 0f
-    private var rY = 0f
+    private var rY = -120f
     private var tRX = 0f
-    private var tRY = 0f
+    private var tRY = -120f
     private var zoom = 1f
     private var tZoom = 1f
 
@@ -140,6 +143,10 @@ class Satellite3DView @JvmOverloads constructor(
         var tx: Float = 0f, var ty: Float = 0f, var tz: Float = 0f, var al: Float = 0f
     )
     data class UserLocation(val lat: Double, val lon: Double, val region: String, val subRegion: String)
+
+    private val reusablePath = Path()
+    private val reusablePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val activeAnimators = mutableListOf<ValueAnimator>()
 
     init {
         genStars()
@@ -452,7 +459,7 @@ class Satellite3DView @JvmOverloads constructor(
         val (x1, y1, z1) = rY3(x, y, z, rY)
         val (x2, y2, z2) = rX3(x1, y1, z1, rX)
         val p = 1000f; val sc = p / (p + z2)
-        return Triple(x2 * sc, y2 * sc, z2)
+        return Triple(x2 * sc, -y2 * sc, z2)
     }
 
     private fun drawGlobe(c: Canvas, r: Float) {
@@ -463,39 +470,47 @@ class Satellite3DView @JvmOverloads constructor(
 
         gridP.color = 0xFF4FC3F7.toInt(); gridP.alpha = 30
         for (lat in -60..60 step 30) {
-            val pts = mutableListOf<Pair<Float, Float>>()
+            reusablePath.reset()
+            var started = false
             for (lon in -180..180 step 3) {
                 val lr = Math.toRadians(lat.toDouble())
                 val lor = Math.toRadians(lon.toDouble())
-                val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
-                if (sz > -r * 0.3f) pts.add(Pair(cx + sx, cy + sy))
+                val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
+                if (sz > -r * 0.3f) {
+                    if (!started) { reusablePath.moveTo(cx + sx, cy + sy); started = true }
+                    else reusablePath.lineTo(cx + sx, cy + sy)
+                }
             }
-            if (pts.size > 1) { val p = Path(); pts.forEachIndexed { i, pt -> if (i == 0) p.moveTo(pt.first, pt.second) else p.lineTo(pt.first, pt.second) }; c.drawPath(p, gridP) }
+            if (started) c.drawPath(reusablePath, gridP)
         }
         for (lon in -180..180 step 30) {
-            val pts = mutableListOf<Pair<Float, Float>>()
+            reusablePath.reset()
+            var started = false
             for (lat in -90..90 step 3) {
                 val lr = Math.toRadians(lat.toDouble())
                 val lor = Math.toRadians(lon.toDouble())
-                val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
-                if (sz > -r * 0.3f) pts.add(Pair(cx + sx, cy + sy))
+                val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
+                if (sz > -r * 0.3f) {
+                    if (!started) { reusablePath.moveTo(cx + sx, cy + sy); started = true }
+                    else reusablePath.lineTo(cx + sx, cy + sy)
+                }
             }
-            if (pts.size > 1) { val p = Path(); pts.forEachIndexed { i, pt -> if (i == 0) p.moveTo(pt.first, pt.second) else p.lineTo(pt.first, pt.second) }; c.drawPath(p, gridP) }
+            if (started) c.drawPath(reusablePath, gridP)
         }
 
         iceCaps.forEach { ice ->
             val sp = ice.pts.map { cp ->
                 val lr = Math.toRadians(cp.lat.toDouble())
                 val lor = Math.toRadians(cp.lon.toDouble())
-                val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
+                val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
                 Triple(cx + sx, cy + sy, sz)
             }
             if (sp.any { it.third > -r * 0.2f }) {
-                val path = Path()
-                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy) }
-                path.close()
+                reusablePath.reset()
+                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) reusablePath.moveTo(sx, sy) else reusablePath.lineTo(sx, sy) }
+                reusablePath.close()
                 iceP.color = ice.col; iceP.alpha = 200
-                c.drawPath(path, iceP)
+                c.drawPath(reusablePath, iceP)
             }
         }
 
@@ -503,15 +518,15 @@ class Satellite3DView @JvmOverloads constructor(
             val sp = cont.pts.map { cp ->
                 val lr = Math.toRadians(cp.lat.toDouble())
                 val lor = Math.toRadians(cp.lon.toDouble())
-                val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
+                val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
                 Triple(cx + sx, cy + sy, sz)
             }
             if (sp.any { it.third > -r * 0.2f }) {
-                val path = Path()
-                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy) }
-                path.close()
+                reusablePath.reset()
+                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) reusablePath.moveTo(sx, sy) else reusablePath.lineTo(sx, sy) }
+                reusablePath.close()
                 landP.color = cont.col; landP.alpha = 180
-                c.drawPath(path, landP)
+                c.drawPath(reusablePath, landP)
             }
         }
 
@@ -519,15 +534,15 @@ class Satellite3DView @JvmOverloads constructor(
             val sp = region.pts.map { cp ->
                 val lr = Math.toRadians(cp.lat.toDouble())
                 val lor = Math.toRadians(cp.lon.toDouble())
-                val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
+                val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
                 Triple(cx + sx, cy + sy, sz)
             }
             if (sp.any { it.third > -r * 0.2f }) {
-                val path = Path()
-                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy) }
-                path.close()
+                reusablePath.reset()
+                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) reusablePath.moveTo(sx, sy) else reusablePath.lineTo(sx, sy) }
+                reusablePath.close()
                 tropicalP.color = region.col; tropicalP.alpha = 150
-                c.drawPath(path, tropicalP)
+                c.drawPath(reusablePath, tropicalP)
             }
         }
 
@@ -535,15 +550,15 @@ class Satellite3DView @JvmOverloads constructor(
             val sp = region.pts.map { cp ->
                 val lr = Math.toRadians(cp.lat.toDouble())
                 val lor = Math.toRadians(cp.lon.toDouble())
-                val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
+                val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
                 Triple(cx + sx, cy + sy, sz)
             }
             if (sp.any { it.third > -r * 0.2f }) {
-                val path = Path()
-                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy) }
-                path.close()
+                reusablePath.reset()
+                sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) reusablePath.moveTo(sx, sy) else reusablePath.lineTo(sx, sy) }
+                reusablePath.close()
                 desertP.color = region.col; desertP.alpha = 160
-                c.drawPath(path, desertP)
+                c.drawPath(reusablePath, desertP)
             }
         }
 
@@ -554,10 +569,14 @@ class Satellite3DView @JvmOverloads constructor(
         val eqPts = mutableListOf<Pair<Float, Float>>()
         for (lon in -180..180 step 2) {
             val lor = Math.toRadians(lon.toDouble())
-            val (sx, sy, sz) = pj((r * cos(lor)).toFloat(), 0f, (r * sin(lor)).toFloat())
+            val (sx, sy, sz) = pj((r * sin(lor)).toFloat(), 0f, (r * cos(lor)).toFloat())
             if (sz > -r * 0.3f) eqPts.add(Pair(cx + sx, cy + sy))
         }
-        if (eqPts.size > 1) { val p = Path(); eqPts.forEachIndexed { i, pt -> if (i == 0) p.moveTo(pt.first, pt.second) else p.lineTo(pt.first, pt.second) }; c.drawPath(p, eqP) }
+        if (eqPts.size > 1) {
+            reusablePath.reset()
+            eqPts.forEachIndexed { i, pt -> if (i == 0) reusablePath.moveTo(pt.first, pt.second) else reusablePath.lineTo(pt.first, pt.second) }
+            c.drawPath(reusablePath, eqP)
+        }
 
         c.drawCircle(cx, cy, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = RadialGradient(cx - r * 0.35f, cy - r * 0.35f, r * 0.8f,
@@ -704,16 +723,16 @@ class Satellite3DView @JvmOverloads constructor(
         val sp = chinaPts.map { cp ->
             val lr = Math.toRadians(cp.lat.toDouble())
             val lor = Math.toRadians(cp.lon.toDouble())
-            val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
+            val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
             Triple(cx + sx, cy + sy, sz)
         }
         if (sp.any { it.third > -r * 0.2f }) {
-            val path = Path()
-            sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy) }
-            path.close()
+            reusablePath.reset()
+            sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) reusablePath.moveTo(sx, sy) else reusablePath.lineTo(sx, sy) }
+            reusablePath.close()
             chinaP.color = 0xFFD32F2F.toInt(); chinaP.alpha = 160
-            c.drawPath(path, chinaP)
-            c.drawPath(path, chinaStrokeP)
+            c.drawPath(reusablePath, chinaP)
+            c.drawPath(reusablePath, chinaStrokeP)
         }
     }
 
@@ -727,47 +746,67 @@ class Satellite3DView @JvmOverloads constructor(
         val sp = taiwanPts.map { cp ->
             val lr = Math.toRadians(cp.lat.toDouble())
             val lor = Math.toRadians(cp.lon.toDouble())
-            val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
+            val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
             Triple(cx + sx, cy + sy, sz)
         }
         if (sp.any { it.third > -r * 0.2f }) {
-            val path = Path()
-            sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy) }
-            path.close()
+            reusablePath.reset()
+            sp.forEachIndexed { i, (sx, sy, _) -> if (i == 0) reusablePath.moveTo(sx, sy) else reusablePath.lineTo(sx, sy) }
+            reusablePath.close()
             taiwanP.color = 0xFFD32F2F.toInt(); taiwanP.alpha = 180
-            c.drawPath(path, taiwanP)
-            c.drawPath(path, taiwanStrokeP)
+            c.drawPath(reusablePath, taiwanP)
+            c.drawPath(reusablePath, taiwanStrokeP)
         }
     }
 
     private fun drawUserLocation(c: Canvas, r: Float) {
-        val loc = userLocation ?: return
-        val lr = Math.toRadians(loc.lat)
-        val lor = Math.toRadians(loc.lon)
-        val (sx, sy, sz) = pj((r * cos(lr) * cos(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * sin(lor)).toFloat())
+        val loc = userLocation
+        val lat = loc?.lat ?: userLat
+        val lon = loc?.lon ?: userLon
+        
+        if (!hasUserPosition && loc == null) return
+        
+        val lr = Math.toRadians(lat)
+        val lor = Math.toRadians(lon)
+        val (sx, sy, sz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
         if (sz < -r * 0.2f) return
 
         val px = cx + sx
         val py = cy + sy
 
         val pulse = (sin(System.currentTimeMillis() / 300f) * 0.3f + 0.7f)
-        val pulseR = 12f * pulse * zoom
+        val pulseR = 14f * pulse * zoom
 
-        userLocRingP.color = 0xFF4CAF50.toInt()
-        userLocRingP.alpha = (200 * pulse).toInt()
+        userLocRingP.color = 0xFFFFEB3B.toInt()
+        userLocRingP.alpha = (220 * pulse).toInt()
+        userLocRingP.strokeWidth = 2.5f
         c.drawCircle(px, py, pulseR, userLocRingP)
 
-        userLocP.color = 0xFF4CAF50.toInt()
-        c.drawCircle(px, py, 6f * zoom, userLocP)
+        val glowP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(px, py, pulseR * 1.5f,
+                intArrayOf(0x80FFEB3B.toInt(), 0x00FFEB3B.toInt()),
+                floatArrayOf(0f, 1f), Shader.TileMode.CLAMP)
+        }
+        c.drawCircle(px, py, pulseR * 1.5f, glowP)
+
+        userLocP.color = 0xFFFFC107.toInt()
+        c.drawCircle(px, py, 7f * zoom, userLocP)
 
         userLocP.color = 0xFFFFFFFF.toInt()
-        c.drawCircle(px, py, 3f * zoom, userLocP)
+        c.drawCircle(px, py, 4f * zoom, userLocP)
 
-        regionLabelP.textSize = 12f * zoom
-        c.drawText(loc.region, px, py - 14f * zoom, regionLabelP)
+        val dotP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFF5722.toInt()
+        }
+        c.drawCircle(px, py, 2f * zoom, dotP)
 
-        regionSubLabelP.textSize = 10f * zoom
-        c.drawText(loc.subRegion, px, py - 2f * zoom, regionSubLabelP)
+        if (loc != null) {
+            regionLabelP.textSize = 12f * zoom
+            c.drawText(loc.region, px, py - 18f * zoom, regionLabelP)
+
+            regionSubLabelP.textSize = 10f * zoom
+            c.drawText(loc.subRegion, px, py - 6f * zoom, regionSubLabelP)
+        }
     }
 
     private fun drawSat(c: Canvas, s: Sat3D, r: Float) {
@@ -790,9 +829,26 @@ class Satellite3DView @JvmOverloads constructor(
         c.drawCircle(cx + sx, cy + sy, sz2 * 5f, gp)
         c.drawCircle(cx + sx, cy + sy, sz2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; alpha = 230 })
         c.drawCircle(cx + sx - sz2 * 0.3f, cy + sy - sz2 * 0.3f, sz2 * 0.35f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); alpha = 150 })
+        
         if (s.info.usedInFix) {
-            c.drawLine(cx, cy, cx + sx, cy + sy, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = col; strokeWidth = 1f; alpha = 80; style = Paint.Style.STROKE
+            val lat = userLocation?.lat ?: userLat
+            val lon = userLocation?.lon ?: userLon
+            val targetX: Float
+            val targetY: Float
+            
+            if (hasUserPosition) {
+                val lr = Math.toRadians(lat)
+                val lor = Math.toRadians(lon)
+                val (ux, uy, uz) = pj((r * cos(lr) * sin(lor)).toFloat(), (r * sin(lr)).toFloat(), (r * cos(lr) * cos(lor)).toFloat())
+                targetX = cx + ux
+                targetY = cy + uy
+            } else {
+                targetX = cx
+                targetY = cy
+            }
+            
+            c.drawLine(targetX, targetY, cx + sx, cy + sy, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = col; strokeWidth = 1.2f; alpha = 100; style = Paint.Style.STROKE
                 pathEffect = DashPathEffect(floatArrayOf(4f, 4f), 0f)
             })
         }
@@ -839,14 +895,42 @@ class Satellite3DView @JvmOverloads constructor(
 
     fun updateUserLocation(lat: Double, lon: Double, region: String, subRegion: String) {
         userLocation = UserLocation(lat, lon, region, subRegion)
+        userLat = lat
+        userLon = lon
+        hasUserPosition = true
         invalidate()
+    }
+    
+    fun updateUserPosition(lat: Double, lon: Double) {
+        userLat = lat
+        userLon = lon
+        hasUserPosition = true
+        if (userLocation == null) {
+            invalidate()
+        }
     }
 
     private fun av(f: Float, t: Float, u: (Float) -> Unit) {
         ValueAnimator.ofFloat(f, t).apply {
             duration = 700; interpolator = DecelerateInterpolator()
-            addUpdateListener { u(it.animatedValue as Float); invalidate() }; start()
+            addUpdateListener { anim ->
+                u(anim.animatedValue as Float)
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    activeAnimators.remove(this@apply)
+                }
+            })
+            activeAnimators.add(this)
+            start()
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        activeAnimators.forEach { it.cancel() }
+        activeAnimators.clear()
     }
 
     private fun ae3d(az: Float, el: Float): Triple<Float, Float, Float> {

@@ -852,6 +852,101 @@
                 android:layout_marginBottom="12dp"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
+            <!-- HTTP下载服务器 -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/httpServerCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="APK下载服务"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/primary_text" />
+
+                        <TextView
+                            android:id="@+id/httpServerStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="未启动"
+                            android:textSize="13sp"
+                            android:textColor="@color/secondary_text" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/httpServerUrl"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="--"
+                        android:textSize="14sp"
+                        android:textColor="@color/primary"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/httpServerHint"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="在同一WiFi下，其他设备可通过浏览器下载APK"
+                        android:textSize="12sp"
+                        android:textColor="@color/secondary_text"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="12dp">
+
+                        <Button
+                            android:id="@+id/httpServerToggleBtn"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="启动服务"
+                            style="@style/Widget.Material3.Button.TonalButton" />
+
+                        <Button
+                            android:id="@+id/httpServerCopyBtn"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="复制"
+                            android:visibility="gone"
+                            style="@style/Widget.Material3.Button.OutlinedButton" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/httpDownloadLog"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text=""
+                        android:textSize="12sp"
+                        android:textColor="@color/secondary_text"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
         </LinearLayout>
     </ScrollView>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

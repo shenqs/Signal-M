@@ -18,7 +18,7 @@
     <uses-permission android:name="android.permission.ACCESS_GPS" />
     <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
     
-    <!-- 网络请求（天气信息） -->
+    <!-- 网络请求（天气信息/HTTP服务器） -->
     <uses-permission android:name="android.permission.INTERNET" />
     
     <!-- 身体传感器（计步器） -->

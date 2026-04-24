@@ -2,9 +2,6 @@ package com.signalmontor.app
 
 object RadiationCalculator {
 
-    private const val WIFI_FREQ_MHZ = 2400.0
-    private const val CELLULAR_FREQ_MHZ = 1800.0
-
     data class RadiationInfo(
         val estimatedSAR: Double,
         val estimatedPowerDensity: Double,
@@ -63,7 +60,7 @@ object RadiationCalculator {
     fun calculateWiFiRadiation(signalStrengthDbm: Int): RadiationInfo {
         val txPowerDbm = estimateWifiTxPower(signalStrengthDbm)
         val powerDensity = dbmToPowerDensity(txPowerDbm, distance = 0.1)
-        val sar = estimateSAR(powerDensity, isCellular = false)
+        val sar = estimateSAR(powerDensity)
         val risk = getRadiationRisk(sar)
         val percentage = (sar / 2.0 * 100).toFloat().coerceIn(0f, 100f)
 
@@ -82,7 +79,7 @@ object RadiationCalculator {
     ): RadiationInfo {
         val txPowerDbm = estimateCellularTxPower(signalStrengthDbm, networkType)
         val powerDensity = dbmToPowerDensity(txPowerDbm, distance = 0.1)
-        val sar = estimateSAR(powerDensity, isCellular = true)
+        val sar = estimateSAR(powerDensity)
         val risk = getRadiationRisk(sar)
         val percentage = (sar / 2.0 * 100).toFloat().coerceIn(0f, 100f)
 
@@ -130,8 +127,7 @@ object RadiationCalculator {
         return powerWatts / area
     }
 
-    private fun estimateSAR(powerDensity: Double, isCellular: Boolean): Double {
-        val freq = if (isCellular) CELLULAR_FREQ_MHZ else WIFI_FREQ_MHZ
+    private fun estimateSAR(powerDensity: Double): Double {
         val eField = Math.sqrt(powerDensity * 377.0)
         val sar = (eField * eField) / (1.0 * 1000.0) * 0.001
         return sar.coerceIn(0.0, 2.0)
