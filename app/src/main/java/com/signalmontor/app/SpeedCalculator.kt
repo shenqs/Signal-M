@@ -21,13 +21,13 @@ class SpeedCalculator {
         private const val SEA_LEVEL_PRESSURE_HPA = 1013.25f
         private const val TEMPERATURE_SMOOTH_ALPHA = 0.2f
         private const val SPEED_SMOOTH_ALPHA = 0.08f
-        private const val BEARING_SMOOTH_ALPHA = 0.05f
+        private const val BEARING_SMOOTH_ALPHA = 0.15f
         private const val ACCEL_SMOOTH_ALPHA = 0.04f
         private const val GPS_ACCURACY_GOOD = 20f
         private const val GPS_ACCURACY_OK = 50f
         private const val GPS_FIX_TIMEOUT = 10000L
-        private const val DISPLAY_SPEED_MAX = 1000f
-        private const val GPS_SPEED_MAX_MS = 150f
+        private const val DISPLAY_SPEED_MAX = 1200f
+        private const val GPS_SPEED_MAX_MS = 334f
         
         private const val STEP_MIN_INTERVAL_MS = 200L
         private const val STEP_MAX_INTERVAL_MS = 2000L
@@ -321,18 +321,39 @@ class SpeedCalculator {
         val raw = pressureToAltitude(smoothedPressure)
         val cal = if (baseAltitudeSet) baseAltitude + raw - pressureToAltitude(basePressure) else raw
         currentAltitude = cal
-        if (smoothedAltitude == 0f) smoothedAltitude = cal else smoothedAltitude += 0.15f * (cal - smoothedAltitude)
-        if (hasBarometer && gpsAltitude != 0f && baseAltitudeSet) smoothedAltitude -= (smoothedAltitude - gpsAltitude) * 0.05f
+        
+        if (smoothedAltitude == 0f) {
+            smoothedAltitude = cal
+        } else {
+            val alpha = if (hasBarometer && gpsAltitude != 0f && baseAltitudeSet) 0.08f else 0.12f
+            smoothedAltitude += alpha * (cal - smoothedAltitude)
+        }
+        
+        if (hasBarometer && gpsAltitude != 0f && baseAltitudeSet) {
+            val drift = smoothedAltitude - gpsAltitude
+            smoothedAltitude -= drift * 0.02f
+        }
+        
         updateAltitudeStats(smoothedAltitude)
         altitudeHistory.add(smoothedAltitude)
         if (altitudeHistory.size > ALTITUDE_HISTORY_MAX) altitudeHistory.removeAt(0)
-        if (altitudeHistory.size >= 2) { val now = System.currentTimeMillis(); if (lastAltitudeTime > 0) { val dt = (now - lastAltitudeTime) / 1000f; if (dt > 0) altitudeChangeRate = (smoothedAltitude - lastAltitude) / dt }; lastAltitude = smoothedAltitude; lastAltitudeTime = now }
+        if (altitudeHistory.size >= 2) {
+            val now = System.currentTimeMillis()
+            if (lastAltitudeTime > 0) {
+                val dt = (now - lastAltitudeTime) / 1000f
+                if (dt > 0) altitudeChangeRate = (smoothedAltitude - lastAltitude) / dt
+            }
+            lastAltitude = smoothedAltitude
+            lastAltitudeTime = now
+        }
         gravityMagnitude = sqrt(gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2]).let { if (it > 0) it else GRAVITY }
     }
 
     private fun pressureToAltitude(p: Float): Float {
-        val t = if (smoothedTemperature != 0f) smoothedTemperature else 15f; val tk = t + 273.15f
-        return (tk / 0.0065f) * (1f - (p / SEA_LEVEL_PRESSURE_HPA).toDouble().pow(((0.0065f * 287.05f) / 9.80665f).toDouble())).toFloat()
+        val t = if (smoothedTemperature != 0f) smoothedTemperature else 15f
+        val tk = t + 273.15f
+        val exponent = (0.0065f * 287.05f) / 9.80665f
+        return (tk / 0.0065f) * (1f - Math.pow((p / SEA_LEVEL_PRESSURE_HPA).toDouble(), exponent.toDouble())).toFloat()
     }
 
     private fun updateAltitudeStats(a: Float) { if (a > maxAltitude) maxAltitude = a; if (a < minAltitude) minAltitude = a }
@@ -368,11 +389,30 @@ class SpeedCalculator {
         if (s.isNaN() || s < 0f || s > GPS_SPEED_MAX_MS) return
         val kmh = s * 3.6f
         
+        if (gpsAccuracy > 50f && kmh > 100f) {
+            return
+        }
+        
+        if (kmh > 500f && gpsAccuracy < 30f) {
+            displaySpeed = kmh
+            return
+        }
+        
         if (displaySpeed < 1f) {
             displaySpeed = kmh
+        } else if (kmh > displaySpeed) {
+            val diff = kmh - displaySpeed
+            val isAccurateGps = gpsAccuracy < 30f
+            
+            if (kmh > 100f && isAccurateGps) {
+                displaySpeed += 0.5f * (kmh - displaySpeed)
+            } else if (diff < maxOf(150f, displaySpeed * 1.5f)) {
+                displaySpeed += 0.25f * (kmh - displaySpeed)
+            } else {
+                displaySpeed += 0.1f * (kmh - displaySpeed)
+            }
         } else {
-            val alpha = if (kmh < displaySpeed) 0.4f else 0.15f
-            displaySpeed = displaySpeed + alpha * (kmh - displaySpeed)
+            displaySpeed += 0.4f * (kmh - displaySpeed)
         }
         displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
     }
@@ -415,24 +455,44 @@ class SpeedCalculator {
                 rawKmh = gpsKmh
             } else {
                 val diff = gpsKmh - displaySpeed
-                if (diff < maxOf(200f, displaySpeed * 2f)) rawKmh = gpsKmh else rawKmh = displaySpeed
+                val isStationary = displaySpeed < 1f
+                val isAccurateGps = gpsAccuracy < 30f
+                
+                if (isStationary && diff > 50f) {
+                    rawKmh = displaySpeed
+                } else if (isStationary && isAccurateGps) {
+                    rawKmh = gpsKmh
+                } else if (gpsKmh > 100f && isAccurateGps) {
+                    rawKmh = gpsKmh
+                } else if (diff < maxOf(150f, displaySpeed * 1.5f)) {
+                    rawKmh = gpsKmh
+                } else {
+                    rawKmh = displaySpeed
+                }
             }
         } else if (!gpsValid) {
             rawKmh = 0f
         }
         
-        val isHighSpeed = gpsValid && gpsKmh > 100f
-        
-        val effBearing = if (gpsValid && (gpsBearing > 0f || isHighSpeed)) gpsBearing else currentBearing
+        val isHighSpeed = gpsValid && gpsKmh > 30f
+        val useGpsBearing = gpsValid && gpsBearing > 0f && (isHighSpeed || gpsAccuracy < 30f)
+        val effBearing = if (useGpsBearing) gpsBearing else currentBearing
         val effAccel = if (gpsValid) gpsAcceleration else smoothedAcceleration * GRAVITY
         val prev = displaySpeed
         
         if (gpsValid || shouldUseStepFusion) {
-            val a = if (rawKmh < displaySpeed) 0.5f else if (isHighSpeed) 0.25f else SPEED_SMOOTH_ALPHA
+            val isLowSpeed = rawKmh < 30f
+            val a = when {
+                rawKmh < displaySpeed -> 0.5f
+                isHighSpeed -> 0.6f
+                isLowSpeed -> 0.12f
+                else -> SPEED_SMOOTH_ALPHA
+            }
             displaySpeed += a * (rawKmh - displaySpeed)
             
-            val maxChange = if (isHighSpeed) 80f else 50f
-            val minChange = if (isHighSpeed) 30f else 15f
+            val isFirstHighSpeed = prev < 300f && isHighSpeed && rawKmh > 500f
+            val maxChange = if (isFirstHighSpeed) 1000f else if (isHighSpeed) 200f else 50f
+            val minChange = if (isFirstHighSpeed) 800f else if (isHighSpeed) 200f else if (isLowSpeed) 5f else 15f
             displaySpeed = displaySpeed.coerceIn(prev - maxChange, prev + minChange)
         } else if (stoppingWalk) {
             displaySpeed *= 0.3f
@@ -445,7 +505,7 @@ class SpeedCalculator {
         displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
         if (!gpsValid && !shouldUseStepFusion && displaySpeed < 1.0f) displaySpeed = 0f
         
-        val bearingAlpha = if (isHighSpeed) 0.15f else BEARING_SMOOTH_ALPHA
+        val bearingAlpha = if (isHighSpeed) 0.2f else BEARING_SMOOTH_ALPHA
         displayBearing = smoothBearing(displayBearing, effBearing, bearingAlpha)
         displayAcceleration += 0.05f * (effAccel - displayAcceleration)
         

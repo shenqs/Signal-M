@@ -107,7 +107,7 @@ class SpeedMonitorView @JvmOverloads constructor(
     private var descY1 = 0f
     private var descY2 = 0f
     private var compassDescY = 0f
-    private val MAX_DISPLAY_SPEED = 1000f
+    private val MAX_DISPLAY_SPEED = 1200f
 
     fun updateSpeedData(data: SpeedCalculator.SpeedData) {
         val now = System.currentTimeMillis()
@@ -236,7 +236,7 @@ class SpeedMonitorView @JvmOverloads constructor(
             strokeCap = Paint.Cap.ROUND
         }
         
-        val speedRanges = listOf(0, 50, 100, 200, 350, 500, 700, 850, 1000)
+        val speedRanges = listOf(0, 100, 200, 400, 600, 800, 1000, 1200)
         for (i in 0..10) {
             val angle = 135f + i * 27f
             val rad = Math.toRadians(angle.toDouble())
