@@ -21,7 +21,7 @@ class SpeedCalculator {
         private const val SEA_LEVEL_PRESSURE_HPA = 1013.25f
         private const val TEMPERATURE_SMOOTH_ALPHA = 0.2f
         private const val SPEED_SMOOTH_ALPHA = 0.08f
-        private const val BEARING_SMOOTH_ALPHA = 0.15f
+        private const val BEARING_SMOOTH_ALPHA = 0.35f
         private const val ACCEL_SMOOTH_ALPHA = 0.04f
         private const val GPS_ACCURACY_GOOD = 20f
         private const val GPS_ACCURACY_OK = 50f
@@ -474,9 +474,14 @@ class SpeedCalculator {
             rawKmh = 0f
         }
         
-        val isHighSpeed = gpsValid && gpsKmh > 30f
-        val useGpsBearing = gpsValid && gpsBearing > 0f && (isHighSpeed || gpsAccuracy < 30f)
-        val effBearing = if (useGpsBearing) gpsBearing else currentBearing
+        val isHighSpeed = gpsValid && gpsKmh > 25f
+        val isVeryLowSpeed = gpsValid && gpsKmh < 10f
+        val useGpsBearing = gpsValid && gpsBearing > 0f && (isHighSpeed || (!isVeryLowSpeed && gpsAccuracy < 30f))
+        val effBearing = when {
+            useGpsBearing -> gpsBearing
+            isHighSpeed && displayBearing > 0f -> displayBearing
+            else -> currentBearing
+        }
         val effAccel = if (gpsValid) gpsAcceleration else smoothedAcceleration * GRAVITY
         val prev = displaySpeed
         
@@ -505,7 +510,7 @@ class SpeedCalculator {
         displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
         if (!gpsValid && !shouldUseStepFusion && displaySpeed < 1.0f) displaySpeed = 0f
         
-        val bearingAlpha = if (isHighSpeed) 0.2f else BEARING_SMOOTH_ALPHA
+        val bearingAlpha = if (isHighSpeed) 0.5f else BEARING_SMOOTH_ALPHA
         displayBearing = smoothBearing(displayBearing, effBearing, bearingAlpha)
         displayAcceleration += 0.05f * (effAccel - displayAcceleration)
         
