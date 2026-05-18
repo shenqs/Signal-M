@@ -747,17 +747,42 @@ private fun resolveRegion(lat: Double, lon: Double) {
         lastResolveLon = lon
         
         Thread {
-            var retryCount = 0
             var success = false
             
-            while (retryCount < 3 && !success) {
+            try {
+                val geocoder = Geocoder(this, Locale.getDefault())
+                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                if (addresses != null && addresses.isNotEmpty()) {
+                    val addr = addresses[0]
+                    val region = addr.adminArea ?: addr.countryName ?: "未知"
+                    val subRegion = addr.subAdminArea ?: addr.locality ?: addr.thoroughfare ?: ""
+                    currentRegion = region
+                    currentSubRegion = subRegion
+                    success = true
+                    runOnUiThread {
+                        val satellite3DView = findViewById<Satellite3DView>(R.id.satellite3DView)
+                        satellite3DView.updateUserLocation(lat, lon, region, subRegion)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            
+            if (!success) {
                 try {
-                    val geocoder = Geocoder(this, Locale.getDefault())
-                    val addresses = geocoder.getFromLocation(lat, lon, 1)
-                    if (addresses != null && addresses.isNotEmpty()) {
-                        val addr = addresses[0]
-                        val region = addr.adminArea ?: addr.countryName ?: "未知"
-                        val subRegion = addr.subAdminArea ?: addr.locality ?: addr.thoroughfare ?: ""
+                    val url = "https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json"
+                    val connection = URL(url).openConnection() as HttpURLConnection
+                    connection.requestMethod = "GET"
+                    connection.connectTimeout = 5000
+                    connection.readTimeout = 5000
+                    connection.setRequestProperty("User-Agent", "SignalMonitor/1.0")
+                    
+                    if (connection.responseCode == 200) {
+                        val response = connection.inputStream.bufferedReader().readText()
+                        val json = JSONObject(response)
+                        val address = json.getJSONObject("address")
+                        val region = address.optString("state", address.optString("country", "未知"))
+                        val subRegion = address.optString("city", address.optString("suburb", ""))
                         currentRegion = region
                         currentSubRegion = subRegion
                         success = true
@@ -766,10 +791,9 @@ private fun resolveRegion(lat: Double, lon: Double) {
                             satellite3DView.updateUserLocation(lat, lon, region, subRegion)
                         }
                     }
+                    connection.disconnect()
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    retryCount++
-                    if (retryCount < 3) Thread.sleep(500)
                 }
             }
             
