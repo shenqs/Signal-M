@@ -760,13 +760,11 @@ private fun resolveRegion(lat: Double, lon: Double) {
                     val road = addr.thoroughfare ?: ""
                     
                     val region = state
-                    val subRegion = when {
-                        road.isNotEmpty() && district.isNotEmpty() -> "$district $road"
-                        road.isNotEmpty() -> road
-                        district.isNotEmpty() -> district
-                        city.isNotEmpty() && city != state -> city
-                        else -> ""
-                    }
+                    val subRegionParts = mutableListOf<String>()
+                    if (city.isNotEmpty() && city != state) subRegionParts.add(city)
+                    if (district.isNotEmpty() && district != city) subRegionParts.add(district)
+                    if (road.isNotEmpty()) subRegionParts.add(road)
+                    val subRegion = subRegionParts.joinToString(" ")
                     
                     currentRegion = region
                     currentSubRegion = subRegion
@@ -799,21 +797,19 @@ private fun resolveRegion(lat: Double, lon: Double) {
                         val suburb = address.optString("suburb", address.optString("quarter", ""))
                         val road = address.optString("road", "")
                         
-                        val actualCity = if (city.endsWith("区") || city.endsWith("县")) {
-                            displayName.split(", ").find { it.endsWith("市") && !it.endsWith("区") && !it.endsWith("县") } ?: city
+                        val actualCity = if (city.isNotEmpty() && (city.endsWith("区") || city.endsWith("县"))) {
+                            displayName.split(", ").find { it.endsWith("市") && !it.endsWith("区") && !it.endsWith("县") } ?: ""
                         } else {
-                            city
+                            ""
                         }
                         
                         val region = state
-                        val subRegion = when {
-                            road.isNotEmpty() && suburb.isNotEmpty() -> "$suburb $road"
-                            road.isNotEmpty() -> road
-                            suburb.isNotEmpty() -> suburb
-                            actualCity.isNotEmpty() && actualCity != state -> "$actualCity $city"
-                            city.isNotEmpty() && city != state -> city
-                            else -> ""
-                        }
+                        val subRegionParts = mutableListOf<String>()
+                        if (actualCity.isNotEmpty()) subRegionParts.add(actualCity)
+                        if (city.isNotEmpty()) subRegionParts.add(city)
+                        if (suburb.isNotEmpty()) subRegionParts.add(suburb)
+                        if (road.isNotEmpty()) subRegionParts.add(road)
+                        val subRegion = subRegionParts.joinToString(" ")
                         
                         currentRegion = region
                         currentSubRegion = subRegion
