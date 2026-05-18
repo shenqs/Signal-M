@@ -754,8 +754,20 @@ private fun resolveRegion(lat: Double, lon: Double) {
                 val addresses = geocoder.getFromLocation(lat, lon, 1)
                 if (addresses != null && addresses.isNotEmpty()) {
                     val addr = addresses[0]
-                    val region = addr.adminArea ?: addr.countryName ?: "未知"
-                    val subRegion = addr.subAdminArea ?: addr.locality ?: addr.thoroughfare ?: ""
+                    val state = addr.adminArea ?: addr.countryName ?: "未知"
+                    val city = addr.locality ?: ""
+                    val district = addr.subAdminArea ?: addr.subLocality ?: ""
+                    val road = addr.thoroughfare ?: ""
+                    
+                    val region = state
+                    val subRegion = when {
+                        road.isNotEmpty() && district.isNotEmpty() -> "$district $road"
+                        road.isNotEmpty() -> road
+                        district.isNotEmpty() -> district
+                        city.isNotEmpty() && city != state -> city
+                        else -> ""
+                    }
+                    
                     currentRegion = region
                     currentSubRegion = subRegion
                     success = true
@@ -781,8 +793,28 @@ private fun resolveRegion(lat: Double, lon: Double) {
                         val response = connection.inputStream.bufferedReader().readText()
                         val json = JSONObject(response)
                         val address = json.getJSONObject("address")
-                        val region = address.optString("state", address.optString("country", "未知"))
-                        val subRegion = address.optString("city", address.optString("suburb", ""))
+                        val displayName = json.optString("display_name", "")
+                        val state = address.optString("state", address.optString("country", "未知"))
+                        val city = address.optString("city", "")
+                        val suburb = address.optString("suburb", address.optString("quarter", ""))
+                        val road = address.optString("road", "")
+                        
+                        val actualCity = if (city.endsWith("区") || city.endsWith("县")) {
+                            displayName.split(", ").find { it.endsWith("市") && !it.endsWith("区") && !it.endsWith("县") } ?: city
+                        } else {
+                            city
+                        }
+                        
+                        val region = state
+                        val subRegion = when {
+                            road.isNotEmpty() && suburb.isNotEmpty() -> "$suburb $road"
+                            road.isNotEmpty() -> road
+                            suburb.isNotEmpty() -> suburb
+                            actualCity.isNotEmpty() && actualCity != state -> "$actualCity $city"
+                            city.isNotEmpty() && city != state -> city
+                            else -> ""
+                        }
+                        
                         currentRegion = region
                         currentSubRegion = subRegion
                         success = true
