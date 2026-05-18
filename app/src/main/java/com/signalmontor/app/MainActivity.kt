@@ -104,6 +104,11 @@ class MainActivity : AppCompatActivity() {
     private var weatherFetchInProgress = false
     private var currentRegion = ""
     private var currentSubRegion = ""
+    private var lastRegionResolveTime = 0L
+    private var lastResolveLat = 0.0
+    private var lastResolveLon = 0.0
+    private val REGION_CACHE_INTERVAL = 5 * 60 * 1000L
+    private val REGION_MIN_DISTANCE = 0.01
 
     private val requiredPermissions = mutableListOf(
         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -610,8 +615,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0f, locationListener)
-            locationManager?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 0f, locationListener)
+            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000, 5f, locationListener)
+            locationManager?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000, 10f, locationListener)
         } catch (e: SecurityException) {
             e.printStackTrace()
         }
@@ -730,6 +735,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resolveRegion(lat: Double, lon: Double) {
+        val now = System.currentTimeMillis()
+        val distance = kotlin.math.sqrt((lat - lastResolveLat) * (lat - lastResolveLat) + (lon - lastResolveLon) * (lon - lastResolveLon))
+        
+        if (now - lastRegionResolveTime < REGION_CACHE_INTERVAL && distance < REGION_MIN_DISTANCE && currentRegion.isNotEmpty()) {
+            return
+        }
+        
+        lastRegionResolveTime = now
+        lastResolveLat = lat
+        lastResolveLon = lon
+        
         Thread {
             try {
                 val geocoder = Geocoder(this, Locale.getDefault())
