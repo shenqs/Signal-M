@@ -734,7 +734,7 @@ class MainActivity : AppCompatActivity() {
         statusText.text = "$availableCount/${sensors.size} 传感器"
     }
 
-    private fun resolveRegion(lat: Double, lon: Double) {
+private fun resolveRegion(lat: Double, lon: Double) {
         val now = System.currentTimeMillis()
         val distance = kotlin.math.sqrt((lat - lastResolveLat) * (lat - lastResolveLat) + (lon - lastResolveLon) * (lon - lastResolveLon))
         
@@ -747,22 +747,40 @@ class MainActivity : AppCompatActivity() {
         lastResolveLon = lon
         
         Thread {
-            try {
-                val geocoder = Geocoder(this, Locale.getDefault())
-                val addresses = geocoder.getFromLocation(lat, lon, 1)
-                if (addresses != null && addresses.isNotEmpty()) {
-                    val addr = addresses[0]
-                    val region = addr.adminArea ?: addr.countryName ?: "未知"
-                    val subRegion = addr.subAdminArea ?: addr.locality ?: addr.thoroughfare ?: ""
-                    currentRegion = region
-                    currentSubRegion = subRegion
-                    runOnUiThread {
-                        val satellite3DView = findViewById<Satellite3DView>(R.id.satellite3DView)
-                        satellite3DView.updateUserLocation(lat, lon, region, subRegion)
+            var retryCount = 0
+            var success = false
+            
+            while (retryCount < 3 && !success) {
+                try {
+                    val geocoder = Geocoder(this, Locale.getDefault())
+                    val addresses = geocoder.getFromLocation(lat, lon, 1)
+                    if (addresses != null && addresses.isNotEmpty()) {
+                        val addr = addresses[0]
+                        val region = addr.adminArea ?: addr.countryName ?: "未知"
+                        val subRegion = addr.subAdminArea ?: addr.locality ?: addr.thoroughfare ?: ""
+                        currentRegion = region
+                        currentSubRegion = subRegion
+                        success = true
+                        runOnUiThread {
+                            val satellite3DView = findViewById<Satellite3DView>(R.id.satellite3DView)
+                            satellite3DView.updateUserLocation(lat, lon, region, subRegion)
+                        }
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    retryCount++
+                    if (retryCount < 3) Thread.sleep(500)
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            }
+            
+            if (!success) {
+                val coordText = String.format("%.2f°N, %.2f°E", lat, lon)
+                currentRegion = coordText
+                currentSubRegion = ""
+                runOnUiThread {
+                    val satellite3DView = findViewById<Satellite3DView>(R.id.satellite3DView)
+                    satellite3DView.updateUserLocation(lat, lon, coordText, "")
+                }
             }
         }.start()
     }
