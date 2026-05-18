@@ -756,13 +756,15 @@ private fun resolveRegion(lat: Double, lon: Double) {
                     val addr = addresses[0]
                     val state = addr.adminArea ?: addr.countryName ?: "未知"
                     val city = addr.locality ?: ""
-                    val district = addr.subAdminArea ?: addr.subLocality ?: ""
+                    val county = addr.subAdminArea ?: ""
+                    val district = addr.subLocality ?: ""
                     val road = addr.thoroughfare ?: ""
                     
                     val region = state
                     val subRegionParts = mutableListOf<String>()
                     if (city.isNotEmpty() && city != state) subRegionParts.add(city)
-                    if (district.isNotEmpty() && district != city) subRegionParts.add(district)
+                    if (county.isNotEmpty() && county != city && county != state) subRegionParts.add(county)
+                    if (district.isNotEmpty() && district != county) subRegionParts.add(district)
                     if (road.isNotEmpty()) subRegionParts.add(road)
                     val subRegion = subRegionParts.joinToString(" ")
                     
@@ -792,23 +794,43 @@ private fun resolveRegion(lat: Double, lon: Double) {
                         val json = JSONObject(response)
                         val address = json.getJSONObject("address")
                         val displayName = json.optString("display_name", "")
-                        val state = address.optString("state", address.optString("country", "未知"))
-                        val city = address.optString("city", "")
-                        val suburb = address.optString("suburb", address.optString("quarter", ""))
-                        val road = address.optString("road", "")
                         
-                        val actualCity = if (city.isNotEmpty() && (city.endsWith("区") || city.endsWith("县"))) {
-                            displayName.split(", ").find { it.endsWith("市") && !it.endsWith("区") && !it.endsWith("县") } ?: ""
+                        val rawState = address.optString("state", "")
+                        val rawCity = address.optString("city", address.optString("town", address.optString("village", "")))
+                        val rawCounty = address.optString("county", address.optString("district", ""))
+                        val rawSuburb = address.optString("suburb", address.optString("quarter", address.optString("neighbourhood", "")))
+                        val rawRoad = address.optString("road", "")
+                        val country = address.optString("country", "未知")
+                        val isoCode = address.optString("ISO3166-2-lvl4", "")
+                        
+                        val displayParts = displayName.split(", ")
+                        
+                        val state = when {
+                            rawState.isNotEmpty() -> rawState
+                            isoCode.startsWith("CN-BJ") -> "北京市"
+                            isoCode.startsWith("CN-SH") -> "上海市"
+                            isoCode.startsWith("CN-TJ") -> "天津市"
+                            isoCode.startsWith("CN-CQ") -> "重庆市"
+                            isoCode.startsWith("JP") -> displayParts.find { it.contains("都") || it.contains("道") || it.contains("府") || it.contains("县") } ?: country
+                            else -> country
+                        }
+                        
+                        val actualCity = if (rawCity.isNotEmpty() && (rawCity.endsWith("区") || rawCity.endsWith("县") || rawCity.endsWith("郡"))) {
+                            displayParts.find { 
+                                (it.endsWith("市") && !it.endsWith("区") && !it.endsWith("县")) || 
+                                listOf("北京市", "上海市", "天津市", "重庆市", "東京都", "大阪府", "北海道").contains(it)
+                            } ?: ""
                         } else {
-                            ""
+                            rawCity
                         }
                         
                         val region = state
                         val subRegionParts = mutableListOf<String>()
-                        if (actualCity.isNotEmpty()) subRegionParts.add(actualCity)
-                        if (city.isNotEmpty()) subRegionParts.add(city)
-                        if (suburb.isNotEmpty()) subRegionParts.add(suburb)
-                        if (road.isNotEmpty()) subRegionParts.add(road)
+                        if (actualCity.isNotEmpty() && actualCity != region) subRegionParts.add(actualCity)
+                        if (rawCity.isNotEmpty() && rawCity != actualCity && rawCity != region) subRegionParts.add(rawCity)
+                        if (rawCounty.isNotEmpty() && rawCounty != rawCity && rawCounty != region) subRegionParts.add(rawCounty)
+                        if (rawSuburb.isNotEmpty() && rawSuburb != rawCounty) subRegionParts.add(rawSuburb)
+                        if (rawRoad.isNotEmpty()) subRegionParts.add(rawRoad)
                         val subRegion = subRegionParts.joinToString(" ")
                         
                         currentRegion = region
