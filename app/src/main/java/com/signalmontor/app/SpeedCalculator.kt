@@ -475,13 +475,7 @@ class SpeedCalculator {
         }
         
         val isHighSpeed = gpsValid && gpsKmh > 25f
-        val isVeryLowSpeed = gpsValid && gpsKmh < 10f
-        val useGpsBearing = gpsValid && gpsBearing > 0f && (isHighSpeed || (!isVeryLowSpeed && gpsAccuracy < 30f))
-        val effBearing = when {
-            useGpsBearing -> gpsBearing
-            isHighSpeed && displayBearing > 0f -> displayBearing
-            else -> currentBearing
-        }
+        val effBearing = currentBearing
         val effAccel = if (gpsValid) gpsAcceleration else smoothedAcceleration * GRAVITY
         val prev = displaySpeed
         
@@ -510,8 +504,7 @@ class SpeedCalculator {
         displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
         if (!gpsValid && !shouldUseStepFusion && displaySpeed < 1.0f) displaySpeed = 0f
         
-        val bearingAlpha = if (isHighSpeed) 0.5f else BEARING_SMOOTH_ALPHA
-        displayBearing = smoothBearing(displayBearing, effBearing, bearingAlpha)
+        displayBearing = smoothBearing(displayBearing, effBearing, BEARING_SMOOTH_ALPHA)
         displayAcceleration += 0.05f * (effAccel - displayAcceleration)
         
         val avgStepLength = if (estimatedStepSpeed > 0 && stepFrequency > 0) estimatedStepSpeed / stepFrequency else 0.7f
