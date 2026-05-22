@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import java.io.File
 
 plugins {
     id("com.android.application")
@@ -12,6 +13,25 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+val versionFile = rootProject.file("version.properties")
+val versionProps = Properties()
+var majorVersion = 20
+var minorVersion = 0
+var patchVersion = 0
+
+if (versionFile.exists()) {
+    versionProps.load(FileInputStream(versionFile))
+    majorVersion = (versionProps["major"] as String).toInt()
+    minorVersion = (versionProps["minor"] as String).toInt()
+    patchVersion = (versionProps["patch"] as String).toInt()
+}
+
+minorVersion += 1
+versionProps["major"] = majorVersion.toString()
+versionProps["minor"] = minorVersion.toString()
+versionProps["patch"] = patchVersion.toString()
+versionFile.outputStream().use { versionProps.store(it, null) }
+
 android {
     namespace = "com.signalmontor.app"
     compileSdk = 34
@@ -20,8 +40,8 @@ android {
         applicationId = "com.signalmontor.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.9"
+        versionCode = majorVersion * 10000 + minorVersion * 100 + patchVersion
+        versionName = "$majorVersion.$minorVersion.$patchVersion"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

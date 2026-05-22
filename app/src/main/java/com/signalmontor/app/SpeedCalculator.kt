@@ -40,13 +40,27 @@ class SpeedCalculator {
         private const val STEP_SPEED_KALMAN_R = 2.0f
         private const val MAG_LOW_PASS_ALPHA = 0.2f
         private const val ACCEL_LOW_PASS_ALPHA = 0.15f
-    }
-
+        
+        private const val INERTIAL_DECAY_LOW_SPEED = 0.92f
+        private const val INERTIAL_DECAY_MEDIUM_SPEED = 0.96f
+        private const val INERTIAL_DECAY_HIGH_SPEED = 0.985f
+        private const val INERTIAL_TRANSITION_DURATION = 3000L
+        private const val GPS_LOST_CONFIRM_COUNT = 3
+        
+        private const val ACCEL_SPEED_UPDATE_THRESHOLD = 0.15f
+        private const val ACCEL_NOISE_THRESHOLD = 0.08f
+        private const val INERTIAL_ACCEL_FACTOR = 0.5f
+        private const val INERTIAL_MAX_ACCEL_CHANGE = 5f
+        private const val INERTIAL_MIN_SPEED_FOR_ACCEL = 10f
+}
+    
     private var kalmanP = 0f; private var kalmanX = 0f; private var kalmanR = 0.1f; private var kalmanQ = 0.001f; private var kalmanReady = false
     private var basePressure = 0f; private var baseAltitude = 0f; private var baseAltitudeSet = false; private var gpsAltitudeSampleCount = 0
     private var lastUpdate = 0L
     private var gravity = floatArrayOf(0f, 0f, 0f); private var linearAcceleration = floatArrayOf(0f, 0f, 0f)
     private val accelHistory = mutableListOf<Float>(); private var smoothedAcceleration = 0f; private var currentAcceleration = 0f
+    
+    private val confidenceCalculator = InertialConfidenceCalculator()
     private var currentBearing = 0f; private var gpsBearing = 0f; private var gpsAcceleration = 0f
     private var lastGpsSpeedForAccel = 0f; private var lastGpsSpeedTime = 0L
     private var stepCount = 0; private var lastStepTime = 0L; private var stepFrequency = 0f; private var estimatedStepSpeed = 0f
@@ -74,6 +88,20 @@ class SpeedCalculator {
     private var gpsSpeed = 0f; private var gpsAccuracy = 0f; private var lastGpsSpeed = 0f
     private var displaySpeed = 0f; private var displayBearing = 0f; private var displayAcceleration = 0f
     private var hasGpsFix = false; private var lastGpsUpdateTime = 0L
+    
+    private var inertialSpeed = 0f
+    private var inertialSpeedTime = 0L
+    private var lastGpsValidState = false
+    private var gpsLostTransitionTime = 0L
+    private var gpsRecoverTransitionTime = 0L
+    private var lastValidGpsSpeed = 0f
+    private var lastValidGpsAccuracy = 0f
+    private var consecutiveGpsLostCount = 0
+    private var neverHadGps = true
+    private var userInitialSpeedHint = 0f
+    private var initialSpeedSetByUser = false
+    private var accelHistoryForInitialEstimate = mutableListOf<Float>()
+    private var initialSpeedEstimationCount = 0
     private var currentPressure = 0f; private var smoothedPressure = 0f
     private var currentTemperature = 0f; private var smoothedTemperature = 0f
     private var currentAltitude = 0f; private var smoothedAltitude = 0f; private var gpsAltitude = 0f
@@ -95,6 +123,17 @@ class SpeedCalculator {
     fun setLocation(lat: Double, lon: Double) { lastLocationLat = lat; lastLocationLon = lon }
     fun getMagSensorAccuracy(): Int = magSensorAccuracy
     fun onMagAccuracyChanged(a: Int) { magSensorAccuracy = a }
+    
+    fun setInitialSpeedHint(speedKmh: Float) {
+        if (speedKmh > 0f && !initialSpeedSetByUser && neverHadGps) {
+            userInitialSpeedHint = speedKmh
+            initialSpeedSetByUser = true
+            inertialSpeed = speedKmh
+            displaySpeed = speedKmh
+        }
+    }
+    
+    fun getNeverHadGps(): Boolean = neverHadGps
 
     fun processGravity(e: SensorEvent) {
         gravity[0] = e.values[0]; gravity[1] = e.values[1]; gravity[2] = e.values[2]
@@ -112,6 +151,10 @@ class SpeedCalculator {
         currentAcceleration = avgAccel * GRAVITY
         lastUpdate = e.timestamp / 1_000_000
         detectStep(rawMag)
+        
+        val dt = if (lastUpdate > 0) 0.016f else 0f
+        val gyroMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ)
+        confidenceCalculator.updateIMUData(rawMag + GRAVITY, gyroMag, dt)
     }
 
     private fun detectStep(accelMag: Float) {
@@ -418,10 +461,52 @@ class SpeedCalculator {
     }
 
     fun getSpeed(): SpeedData {
-        val gpsAge = System.currentTimeMillis() - lastGpsUpdateTime
+        val now = System.currentTimeMillis()
+        val gpsAge = now - lastGpsUpdateTime
         val gpsValid = hasGpsFix && gpsAge < GPS_FIX_TIMEOUT
         val gpsKmh = if (gpsValid) gpsSpeed * 3.6f else -1f
         val stepKmh = estimatedStepSpeed * 3.6f
+        
+        if (gpsValid) {
+            neverHadGps = false
+        }
+        
+        confidenceCalculator.setGpsLostState(!gpsValid, now)
+        confidenceCalculator.updateSpeedData(displaySpeed)
+        
+        val gpsJustLost = lastGpsValidState && !gpsValid
+        val gpsJustRecovered = !lastGpsValidState && gpsValid
+        val inGpsLostTransition = gpsLostTransitionTime > 0 && (now - gpsLostTransitionTime) < INERTIAL_TRANSITION_DURATION
+        val inGpsRecoverTransition = gpsRecoverTransitionTime > 0 && (now - gpsRecoverTransitionTime) < INERTIAL_TRANSITION_DURATION
+        
+        val neverHadGpsAndNeedEstimate = neverHadGps && !gpsValid && !initialSpeedSetByUser
+        
+        if (gpsJustLost) {
+            gpsLostTransitionTime = now
+            gpsRecoverTransitionTime = 0L
+            inertialSpeed = displaySpeed
+            inertialSpeedTime = now
+            consecutiveGpsLostCount++
+        } else if (neverHadGpsAndNeedEstimate) {
+            if (inertialSpeed == 0f && displaySpeed == 0f) {
+                estimateInitialSpeedFromEnvironment()
+            }
+        }
+        
+        if (gpsJustRecovered) {
+            gpsRecoverTransitionTime = now
+            gpsLostTransitionTime = 0L
+            consecutiveGpsLostCount = 0
+            initialSpeedSetByUser = false
+            userInitialSpeedHint = 0f
+        }
+        
+        lastGpsValidState = gpsValid
+        
+        if (gpsValid && gpsKmh >= 0) {
+            lastValidGpsSpeed = gpsKmh
+            lastValidGpsAccuracy = gpsAccuracy
+        }
         
         val wasUsingStepSpeed = walkingDetected && stepFrequency > 0.3f
         val isReallyWalking = walkingDetected && 
@@ -471,10 +556,62 @@ class SpeedCalculator {
                 }
             }
         } else if (!gpsValid) {
-            rawKmh = 0f
+            if (inertialSpeed > 5f || initialSpeedSetByUser) {
+                val dt = 1f / 60f
+                
+                val linearAccelMag = getLinearAccelMagnitude()
+                val accelDirection = if (abs(linearAccelMag) < ACCEL_NOISE_THRESHOLD) {
+                    0f
+                } else if (linearAccelMag > 0) {
+                    minOf(linearAccelMag, ACCEL_SPEED_UPDATE_THRESHOLD)
+                } else {
+                    maxOf(linearAccelMag, -ACCEL_SPEED_UPDATE_THRESHOLD)
+                }
+                
+                val canUseAccelForSpeed = inertialSpeed >= INERTIAL_MIN_SPEED_FOR_ACCEL && abs(smoothedAcceleration) < 1.5f
+                
+                if (canUseAccelForSpeed) {
+                    val speedChangeFromAccel = accelDirection * INERTIAL_ACCEL_FACTOR * dt * 3.6f
+                    val clampedSpeedChange = speedChangeFromAccel.coerceIn(-INERTIAL_MAX_ACCEL_CHANGE, INERTIAL_MAX_ACCEL_CHANGE)
+                    
+                    if (abs(accelDirection) < ACCEL_NOISE_THRESHOLD) {
+                        val steadyDecay = when {
+                            inertialSpeed > 200f -> 0.998f
+                            inertialSpeed > 50f -> 0.995f
+                            else -> 0.99f
+                        }
+                        inertialSpeed *= steadyDecay
+                    } else if (accelDirection > ACCEL_NOISE_THRESHOLD) {
+                        inertialSpeed = maxOf(inertialSpeed, inertialSpeed + clampedSpeedChange)
+                    } else {
+                        inertialSpeed = maxOf(0f, inertialSpeed + clampedSpeedChange)
+                        if (inertialSpeed < 2f) {
+                            inertialSpeed *= 0.5f
+                        }
+                    }
+                } else {
+                    val decayFactor = when {
+                        inertialSpeed > 200f -> INERTIAL_DECAY_HIGH_SPEED
+                        inertialSpeed > 50f -> INERTIAL_DECAY_MEDIUM_SPEED
+                        else -> INERTIAL_DECAY_LOW_SPEED
+                    }
+                    inertialSpeed *= decayFactor
+                }
+                
+                rawKmh = inertialSpeed
+                
+                if (rawKmh < 2f && !initialSpeedSetByUser) {
+                    rawKmh = 0f
+                    inertialSpeed = 0f
+                }
+            } else if (stoppingWalk) {
+                rawKmh = stepKmh.coerceAtMost(displaySpeed)
+            } else {
+                rawKmh = 0f
+            }
         }
         
-        val isHighSpeed = gpsValid && gpsKmh > 25f
+        val isHighSpeed = (gpsValid && gpsKmh > 25f) || (!gpsValid && inertialSpeed > 50f)
         val effBearing = currentBearing
         val effAccel = if (gpsValid) gpsAcceleration else smoothedAcceleration * GRAVITY
         val prev = displaySpeed
@@ -482,6 +619,7 @@ class SpeedCalculator {
         if (gpsValid || shouldUseStepFusion) {
             val isLowSpeed = rawKmh < 30f
             val a = when {
+                inGpsRecoverTransition && rawKmh > prev -> 0.25f
                 rawKmh < displaySpeed -> 0.5f
                 isHighSpeed -> 0.6f
                 isLowSpeed -> 0.12f
@@ -493,6 +631,8 @@ class SpeedCalculator {
             val maxChange = if (isFirstHighSpeed) 1000f else if (isHighSpeed) 200f else 50f
             val minChange = if (isFirstHighSpeed) 800f else if (isHighSpeed) 200f else if (isLowSpeed) 5f else 15f
             displaySpeed = displaySpeed.coerceIn(prev - maxChange, prev + minChange)
+        } else if (!gpsValid && rawKmh > 0f) {
+            displaySpeed = rawKmh
         } else if (stoppingWalk) {
             displaySpeed *= 0.3f
             if (displaySpeed < 1.5f) displaySpeed = 0f
@@ -510,6 +650,23 @@ class SpeedCalculator {
         val avgStepLength = if (estimatedStepSpeed > 0 && stepFrequency > 0) estimatedStepSpeed / stepFrequency else 0.7f
         val speed = displaySpeed.coerceAtLeast(0f)
         
+        val speedTrend = if (!gpsValid && inertialSpeed > INERTIAL_MIN_SPEED_FOR_ACCEL) {
+            val linearAccelMag = getLinearAccelMagnitude()
+            when {
+                abs(linearAccelMag) < ACCEL_NOISE_THRESHOLD -> SpeedTrend.STEADY
+                linearAccelMag > ACCEL_NOISE_THRESHOLD -> SpeedTrend.ACCELERATING
+                else -> SpeedTrend.DECELERATING
+            }
+        } else if (gpsValid) {
+            when {
+                abs(gpsAcceleration) < 0.5f -> SpeedTrend.STEADY
+                gpsAcceleration > 0.5f -> SpeedTrend.ACCELERATING
+                else -> SpeedTrend.DECELERATING
+            }
+        } else {
+            SpeedTrend.UNKNOWN
+        }
+        
         return SpeedData(
             speed = speed,
             speedMs = if (gpsValid) gpsSpeed else estimatedStepSpeed,
@@ -521,7 +678,7 @@ class SpeedCalculator {
             stepCount = stepCount,
             stepFrequency = stepFrequency,
             movementState = getMovementState(speed, displayAcceleration),
-            confidence = calcConfidence(gpsValid, shouldUseStepFusion),
+            confidence = calcConfidence(gpsValid, shouldUseStepFusion, speedTrend),
             gpsAccuracy = gpsAccuracy,
             altitude = smoothedAltitude,
             gpsAltitude = gpsAltitude,
@@ -537,7 +694,10 @@ class SpeedCalculator {
             speedDescription = speedDesc(speed),
             accelDescription = accelDesc(displayAcceleration),
             walkingConfidence = walkingConfidence,
-            usingStepSpeed = shouldUseStepFusion
+            usingStepSpeed = shouldUseStepFusion,
+            usingInertialSpeed = !gpsValid && inertialSpeed > INERTIAL_MIN_SPEED_FOR_ACCEL,
+            speedTrend = speedTrend,
+            inertialSpeed = inertialSpeed
         )
     }
 
@@ -551,20 +711,63 @@ class SpeedCalculator {
     private fun accelDesc(a: Float): String { val v = abs(a); return when { v < 0.3f -> "几乎无加速度"; v < 1.5f -> "缓慢起步"; v < 3.0f -> "汽车正常加速"; v < 5.0f -> "汽车急加速"; v < 10.0f -> "约1G加速度"; v < 15.0f -> "约1.5G (过山车)"; v < 20.0f -> "约2G (战斗机)"; v < 30.0f -> "约3G (赛车)"; v < 50.0f -> "约5G (飞行员极限)"; else -> "极端加速度" } }
     private fun getDirectionLabel(b: Float) = when (b) { in 0f..22.5f -> "北"; in 22.5f..67.5f -> "东北"; in 67.5f..112.5f -> "东"; in 112.5f..157.5f -> "东南"; in 157.5f..202.5f -> "南"; in 202.5f..247.5f -> "西南"; in 247.5f..292.5f -> "西"; in 292.5f..337.5f -> "西北"; in 337.5f..360f -> "北"; else -> "未知" }
     private fun getMovementState(s: Float, a: Float) = when { s < 1f && abs(a) < 1.0f -> MovementState.STATIONARY; s < 6f -> MovementState.WALKING; s < 20f -> MovementState.RUNNING; s < 50f -> MovementState.CYCLING; s < 120f -> MovementState.DRIVING; else -> MovementState.HIGH_SPEED }
-    private fun calcConfidence(g: Boolean, stepFusion: Boolean = false): Float {
+    private fun calcConfidence(g: Boolean, stepFusion: Boolean = false, trend: SpeedTrend = SpeedTrend.UNKNOWN): Float {
+        val advancedConfidence = confidenceCalculator.computeOverallConfidence(
+            gpsValid = g,
+            gpsAccuracy = gpsAccuracy,
+            inertialSpeed = inertialSpeed,
+            speedTrend = trend
+        )
+        
+        val zuptDetected = confidenceCalculator.detectZeroVelocity()
+        
         return when {
-            g && stepFusion && walkingConfidence > 0.7f -> 0.92f
-            g && stepFusion -> 0.85f
-            g && gpsAccuracy < GPS_ACCURACY_GOOD -> 0.95f
-            g && gpsAccuracy < GPS_ACCURACY_OK -> 0.8f
-            g -> 0.6f
-            stepFusion && walkingConfidence > 0.5f -> 0.7f
-            stepFusion -> 0.5f
-            else -> 0.3f
+            g && stepFusion && walkingConfidence > 0.7f -> maxOf(0.92f, advancedConfidence)
+            g && stepFusion -> maxOf(0.85f, advancedConfidence)
+            g && gpsAccuracy < GPS_ACCURACY_GOOD -> maxOf(0.95f, advancedConfidence)
+            g && gpsAccuracy < GPS_ACCURACY_OK -> maxOf(0.8f, advancedConfidence)
+            g -> maxOf(0.6f, advancedConfidence)
+            stepFusion && walkingConfidence > 0.5f -> maxOf(0.7f, advancedConfidence)
+            stepFusion -> maxOf(0.5f, advancedConfidence)
+            !g && zuptDetected -> 0.9f
+            !g && trend != SpeedTrend.UNKNOWN && inertialSpeed > 50f -> maxOf(0.55f, advancedConfidence)
+            !g && trend == SpeedTrend.STEADY -> maxOf(0.45f, advancedConfidence)
+            else -> maxOf(0.3f, advancedConfidence)
         }
     }
     private fun calcAltQuality(): Float { var q = 0.3f; if (hasBarometer) { q += 0.4f; if (pressureHistory.size >= ALTITUDE_HISTORY_MAX / 2) q += 0.15f }; if (gpsAltitude != 0f) q += 0.15f; if (gravityMagnitude > 0) q += 0.1f; return minOf(1f, q) }
     private fun lowPass(c: Float, p: Float, a: Float) = p + a * (c - p)
+    
+    private fun estimateInitialSpeedFromEnvironment() {
+        if (accelHistory.size < 30) return
+        
+        val accVariance = calculateVariance(accelHistory.takeLast(30))
+        val gyroMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ)
+        
+        initialSpeedEstimationCount++
+        
+        val estimatedSpeed = when {
+            accVariance < 0.1f && gyroMag < 0.05f -> 0f
+            walkingDetected && stepFrequency > 0.5f -> estimatedStepSpeed * 3.6f
+            accVariance < 0.3f && gyroMag < 0.1f -> 50f
+            accVariance < 0.5f && gyroMag < 0.15f -> 80f
+            accVariance < 1.0f && gyroMag < 0.2f -> 200f
+            accVariance < 2.0f && gyroMag < 0.3f -> 300f
+            else -> 0f
+        }
+        
+        if (estimatedSpeed > 0f && initialSpeedEstimationCount > 60) {
+            inertialSpeed = estimatedSpeed
+            displaySpeed = estimatedSpeed
+            initialSpeedSetByUser = true
+        }
+    }
+    
+    private fun calculateVariance(data: List<Float>): Float {
+        if (data.isEmpty()) return 0f
+        val mean = data.average()
+        return data.map { (it - mean) * (it - mean) }.average().toFloat()
+    }
 
 fun reset() {
         lastUpdate = 0L; gravity = floatArrayOf(0f, 0f, 0f); linearAcceleration = floatArrayOf(0f, 0f, 0f); accelHistory.clear()
@@ -581,6 +784,15 @@ fun reset() {
         stepState = StepState.IDLE; consecutiveSteps = 0; walkingDetected = false; walkingConfidence = 0f
         lastPeakTime = 0L; lastValleyTime = 0L; currentPeak = 0f; currentValley = 0f
         stepAmplitudes.clear(); stepIntervals.clear(); deviceOrientation = 0f
+        inertialSpeed = 0f; inertialSpeedTime = 0L; lastGpsValidState = false
+        gpsLostTransitionTime = 0L; gpsRecoverTransitionTime = 0L; lastValidGpsSpeed = 0f; lastValidGpsAccuracy = 0f
+        consecutiveGpsLostCount = 0
+        neverHadGps = true
+        userInitialSpeedHint = 0f
+        initialSpeedSetByUser = false
+        accelHistoryForInitialEstimate.clear()
+        initialSpeedEstimationCount = 0
+        confidenceCalculator.reset()
     }
 
     data class SpeedData(
@@ -591,8 +803,17 @@ fun reset() {
         val minAltitude: Float, val altitudeChangeRate: Float, val pressure: Float, val temperature: Float,
         val gravityMagnitude: Float, val hasBarometer: Boolean, val altitudeQuality: Float,
         val altitudeDescription: String, val speedDescription: String, val accelDescription: String,
-        val walkingConfidence: Float = 0f, val usingStepSpeed: Boolean = false
+        val walkingConfidence: Float = 0f, val usingStepSpeed: Boolean = false,
+        val usingInertialSpeed: Boolean = false, val speedTrend: SpeedTrend = SpeedTrend.UNKNOWN,
+        val inertialSpeed: Float = 0f
     )
+}
+
+enum class SpeedTrend(val label: String, val icon: String) {
+    ACCELERATING("加速", "↑"),
+    STEADY("匀速", "→"),
+    DECELERATING("减速", "↓"),
+    UNKNOWN("未知", "?")
 }
 
 enum class MovementState(val label: String, val icon: String, val color: Int) {

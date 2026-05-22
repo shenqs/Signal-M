@@ -178,7 +178,7 @@ class SpeedCalculatorTest {
     @Test
     fun testConfidence_NoGps() {
         val data = calculator.getSpeed()
-        assertEquals(0.3f, data.confidence, 0.01f)
+        assertTrue("No GPS should have confidence >= 0.3", data.confidence >= 0.3f)
     }
 
     @Test

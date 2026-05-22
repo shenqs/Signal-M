@@ -11,6 +11,25 @@ SignalMonitor is an Android application for real-time WiFi & cellular signal str
 - **JDK**: 17
 - **Kotlin Version**: 1.9.20
 - **Gradle Plugin**: Android Gradle Plugin 8.2.0
+- **Current Version**: 20.x.x (auto-increment on build)
+
+---
+
+## APK Download Server
+
+**固定端口: 8888**
+
+启动服务器:
+```bash
+/root/SignalMonitor/start_server.sh
+```
+
+下载地址: `http://<server-ip>:8888/app-release-v20.x.0.apk`
+
+停止服务器:
+```bash
+pkill -f "http.server 8888"
+```
 
 ---
 
