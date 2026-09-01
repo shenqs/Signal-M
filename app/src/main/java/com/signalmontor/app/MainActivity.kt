@@ -454,7 +454,17 @@ class MainActivity : AppCompatActivity() {
         val overallRecommendation = findViewById<TextView>(R.id.overallRecommendation)
 
         val wifiInfo = wifiManager?.connectionInfo
-        val cellInfos = telephonyManager?.allCellInfo
+        val cellInfos = if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            try {
+                telephonyManager?.allCellInfo
+            } catch (e: SecurityException) {
+                null
+            }
+        } else {
+            null
+        }
 
         var maxRadiation = 0.0
         var maxRisk = RadiationCalculator.RadiationRisk.LOW
@@ -575,7 +585,17 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            locationManager?.registerGnssStatusCallback(mainExecutor, gnssStatusCallback!!)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                locationManager?.registerGnssStatusCallback(mainExecutor, gnssStatusCallback!!)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                locationManager?.registerGnssStatusCallback(
+                    gnssStatusCallback!!,
+                    Handler(Looper.getMainLooper())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                locationManager?.registerGnssStatusCallback(gnssStatusCallback!!)
+            }
         } catch (e: SecurityException) {
             e.printStackTrace()
         }

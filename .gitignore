@@ -12,3 +12,11 @@ local.properties
 gradle-8.9/
 *.zip
 gradle-8.9-bin.zip
+.gradle-dist/
+
+# harness artifacts
+dist/
+harness/logs/*.log
+harness/logs/*.pid
+harness/logs/*.txt
+harness/logs/http-server.pid

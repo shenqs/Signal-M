@@ -34,6 +34,7 @@ versionFile.outputStream().use { versionProps.store(it, null) }
 
 android {
     namespace = "com.signalmontor.app"
+    // 保持 34：aarch64(Termux/PRoot) 上无官方 arm64 aapt2，Debian aapt2 仅支持 android-34 资源格式
     compileSdk = 34
 
     defaultConfig {
@@ -82,6 +83,10 @@ android {
     }
     buildFeatures {
         viewBinding = true
+    }
+    lint {
+        // compileSdk(34) < targetSdk(35)：aarch64 无 arm64 官方 aapt2 可用，属平台限制
+        disable += "GradleCompatible"
     }
     packaging {
         resources {
