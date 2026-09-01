@@ -57,6 +57,30 @@ harness/
 
 `env.sh` 在安装后逐项校验，不满足则非零退出。
 
+### 4.1 仪器测试（设备端）依赖
+
+| 组件 | 版本 | 用途 |
+|---|---|---|
+| androidx.test.ext:junit | 1.1.5 | AndroidJUnit4 运行器 |
+| espresso-core / espresso-contrib | 3.5.1 | UI 断言 / scrollTo 滚动 |
+| androidx.test:rules / core | 1.5.0 | GrantPermissionRule 权限授予 / ActivityScenario |
+
+仪器测试套件位于 `app/src/androidTest/`，模拟真机场景：
+
+| 测试类 | 场景 |
+|---|---|
+| MainActivityUiSmokeTest | 首启渲染、滚动查看全部卡片、按钮/自动刷新稳定 |
+| PermissionFlowTest | 权限授予后监测启动、权限弹窗流程 |
+| NetworkChangeBroadcastTest | WiFi 开关/网络切换/未知广播到达不崩溃 |
+| AdaptiveLayoutTest | 竖屏单列 ↔ 横屏(折叠屏展开态)双列切换、旋转循环 |
+| SpeedUiIntegrationTest | 设备端速度引擎链路、静止毛刺防护、刷新驱动 UI |
+
+运行方式（需连接模拟器或 adb 真机，本机 PRoot 无 adb）：
+
+```bash
+./gradlew connectedDebugAndroidTest
+```
+
 ## 5. 完整流程
 
 ### 5.1 首次：环境就位（一次性）
