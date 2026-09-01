@@ -745,59 +745,62 @@ class MainActivity : AppCompatActivity() {
             Triple("温度计", temperatureSensor != null, speedCalculator.getSpeed().temperature)
         )
 
-        for ((name, available, value) in sensors) {
-            val row = LinearLayout(this).apply {
+        // v21: Apple 风格 —— 传感器整合为两列胶囊网格
+        sensors.chunked(2).forEach { pair ->
+            val gridRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 4, 0, 4)
-                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 3, 0, 3)
             }
-
-            val statusDot = TextView(this).apply {
-                text = if (available) "\u25CF" else "\u25CB"
-                textSize = 14f
-                setTextColor(if (available) 0xFF4CAF50.toInt() else Color.GRAY)
-                setPadding(0, 0, 6, 0)
-            }
-
-            val nameView = TextView(this).apply {
-                text = name
-                textSize = 12f
-                setTextColor(ContextCompat.getColor(context, R.color.primary_text))
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-
-            val valueView = TextView(this).apply {
-                textSize = 11f
-                setTextColor(0xFF757575.toInt())
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            }
-
-            if (available && value != null) {
-                val v = value as Float
-                valueView.text = when (name) {
-                    "线性加速度" -> String.format("%.2f m/s²", v)
-                    "重力" -> String.format("%.2f m/s²", v)
-                    "加速度计" -> String.format("%.2f m/s²", v)
-                    "陀螺仪" -> String.format("%.2f rad/s", v)
-                    "磁力计" -> String.format("%.1f μT", v)
-                    "气压计" -> String.format("%.1f hPa", v)
-                    "温度计" -> String.format("%.1f °C", v)
-                    else -> ""
+            for ((name, available, value) in pair) {
+                val capsule = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(8, 6, 8, 6)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = 14f
+                        setColor(0x1F4FC3F7.toInt())
+                        setStroke(1, 0x264FC3F7.toInt())
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    ).apply { marginStart = 4; marginEnd = 4 }
                 }
-            } else if (!available) {
-                valueView.text = "不可用"
-                valueView.setTextColor(Color.GRAY)
+                val dot = TextView(this).apply {
+                    text = if (available) "\u25CF" else "\u25CB"
+                    textSize = 13f
+                    setTextColor(if (available) 0xFF69F0AE.toInt() else 0xFF4A5568.toInt())
+                    setPadding(0, 0, 6, 0)
+                }
+                val nameView = TextView(this).apply {
+                    text = name.substring(0, 2)
+                    textSize = 11f
+                    setTextColor(0xFF8A94A6.toInt())
+                }
+                val valueView = TextView(this).apply {
+                    textSize = 11f
+                    setTextColor(0xFFF5F7FA.toInt())
+                    text = if (available) shortSensorValue(name, value as Float) else "N/A"
+                }
+                capsule.addView(dot); capsule.addView(nameView); capsule.addView(valueView)
+                gridRow.addView(capsule)
             }
-
-            row.addView(statusDot)
-            row.addView(nameView)
-            row.addView(valueView)
-            container.addView(row)
+            container.addView(gridRow)
         }
 
         val statusText = findViewById<TextView>(R.id.sensorStatus)
         val availableCount = sensors.count { it.second }
-        statusText.text = "$availableCount/${sensors.size} 传感器"
+        statusText.text = "$availableCount/7 传感器在线"
+    }
+
+    private fun shortSensorValue(name: String, v: Float): String {
+        return when (name) {
+            "线性加速度", "重力", "加速度计" -> String.format("%.2f", v)
+            "陀螺仪" -> String.format("%.2f", v)
+            "磁力计" -> String.format("%.0fμT", v)
+            "气压计" -> String.format("%.0fhPa", v)
+            "温度计" -> String.format("%.0f°", v)
+            else -> ""
+        }
     }
 
 private fun resolveRegion(lat: Double, lon: Double) {
@@ -1025,11 +1028,11 @@ private fun resolveRegion(lat: Double, lon: Double) {
         } else { "获取中..." }
 
         val rows = listOf(
-            Triple("地址", addressText, 0xFFFF5722.toInt()),
-            Triple("温度", "${weather.temperature}°C", 0xFFFF9800.toInt()),
-            Triple("天气", weather.weatherDesc, 0xFF2196F3.toInt()),
-            Triple("时区", "$tzName", 0xFF757575.toInt()),
-            Triple("本地时间", currentTime, 0xFF4CAF50.toInt())
+            Triple("地址", addressText, 0xFF8A94A6.toInt()),
+            Triple("温度", "${weather.temperature}°C", 0xFFFFD54F.toInt()),
+            Triple("天气", weather.weatherDesc, 0xFF81D4FA.toInt()),
+            Triple("时区", "$tzName", 0xFF8A94A6.toInt()),
+            Triple("本地时间", currentTime, 0xFFAED581.toInt())
         )
 
         for ((label, value, color) in rows) {
@@ -1042,7 +1045,7 @@ private fun resolveRegion(lat: Double, lon: Double) {
             val labelView = TextView(this).apply {
                 text = label
                 textSize = 12f
-                setTextColor(0xFF757575.toInt())
+                setTextColor(0xFF8A94A6.toInt())
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
 

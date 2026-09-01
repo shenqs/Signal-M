@@ -1,17 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#2196F3</color>
-    <color name="primary_dark">#1976D2</color>
-    <color name="primary_light">#BBDEFB</color>
-    <color name="accent">#FF5722</color>
-    <color name="primary_text">#212121</color>
-    <color name="secondary_text">#757575</color>
-    <color name="background">#F5F5F5</color>
-    <color name="divider">#BDBDBD</color>
+    <!-- v21: Apple 工具箱风格 - 深色科技配色 -->
+    <color name="primary">#4FC3F7</color>
+    <color name="primary_dark">#29B6F6</color>
+    <color name="primary_light">#81D4FA</color>
+    <color name="accent">#FF6E6E</color>
+
+    <color name="background">#0B1020</color>
+    <color name="background_top">#0B1020</color>
+    <color name="background_bottom">#1A1440</color>
+
+    <!-- 毛玻璃卡片 -->
+    <color name="card_bg">#CC151D31</color>
+    <color name="card_stroke">#26FFFFFF</color>
+
+    <color name="primary_text">#F5F7FA</color>
+    <color name="secondary_text">#8A94A6</color>
     <color name="white">#FFFFFF</color>
-    <color name="excellent">#4CAF50</color>
-    <color name="good">#8BC34A</color>
-    <color name="fair">#FFC107</color>
-    <color name="poor">#FF9800</color>
-    <color name="none">#F44336</color>
+    <color name="divider">#1AFFFFFF</color>
+
+    <!-- 信号质量（亮色系深色底可读） -->
+    <color name="excellent">#69F0AE</color>
+    <color name="good">#AED581</color>
+    <color name="fair">#FFD54F</color>
+    <color name="poor">#FFB74D</color>
+    <color name="none">#FF8A80</color>
 </resources>

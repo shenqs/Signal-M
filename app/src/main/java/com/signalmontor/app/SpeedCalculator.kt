@@ -950,10 +950,10 @@ enum class SpeedTrend(val label: String, val icon: String) {
 }
 
 enum class MovementState(val label: String, val icon: String, val color: Int) {
-    STATIONARY("静止", "\uD83E\uDDD8", 0xFF9E9E9E.toInt()),
-    WALKING("步行", "\uD83D\uDEB6", 0xFF4CAF50.toInt()),
-    RUNNING("跑步", "\uD83C\uDFC3", 0xFFFF9800.toInt()),
-    CYCLING("骑行", "\uD83D\uDEB2", 0xFF2196F3.toInt()),
-    DRIVING("驾驶", "\uD83D\uDE97", 0xFF9C27B0.toInt()),
-    HIGH_SPEED("高速", "\u26A1", 0xFFF44336.toInt())
+    STATIONARY("静止", "\uD83E\uDDD8", 0xFF8A94A6.toInt()),
+    WALKING("步行", "\uD83D\uDEB6", 0xFF69F0AE.toInt()),
+    RUNNING("跑步", "\uD83C\uDFC3", 0xFFFFB74D.toInt()),
+    CYCLING("骑行", "\uD83D\uDEB2", 0xFF4FC3F7.toInt()),
+    DRIVING("驾驶", "\uD83D\uDE97", 0xFFB388FF.toInt()),
+    HIGH_SPEED("高速", "\u26A1", 0xFFFF8A80.toInt())
 }

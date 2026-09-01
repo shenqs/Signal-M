@@ -18,7 +18,7 @@ class RadiationGaugeView @JvmOverloads constructor(
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 12f
-        color = 0xFFE0E0E0.toInt()
+        color = 0xFF2A3550.toInt()
     }
 
     private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -38,7 +38,7 @@ class RadiationGaugeView @JvmOverloads constructor(
 
     private val rect = RectF()
     private var animatedProgress = 0f
-    private var currentColor = 0xFFBDBDBD.toInt()
+    private var currentColor = 0xFF8A94A6.toInt()
     private var displayText = "--"
     private var subText = ""
 
@@ -63,7 +63,7 @@ class RadiationGaugeView @JvmOverloads constructor(
 
     fun reset() {
         animatedProgress = 0f
-        currentColor = 0xFFBDBDBD.toInt()
+        currentColor = 0xFF8A94A6.toInt()
         displayText = "--"
         subText = ""
         invalidate()

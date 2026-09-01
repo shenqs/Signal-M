@@ -15,10 +15,10 @@ object RadiationCalculator {
         val color: Int,
         val description: String
     ) {
-        LOW("安全", 0xFF4CAF50.toInt(), "远低于国际安全限值"),
-        MODERATE("注意", 0xFFFFC107.toInt(), "处于安全范围内，建议保持距离"),
-        HIGH("警告", 0xFFFF9800.toInt(), "接近安全限值，减少暴露时间"),
-        VERY_HIGH("危险", 0xFFF44336.toInt(), "超过安全建议值，立即远离")
+        LOW("安全", 0xFF69F0AE.toInt(), "远低于国际安全限值"),
+        MODERATE("注意", 0xFFFFD54F.toInt(), "处于安全范围内，建议保持距离"),
+        HIGH("警告", 0xFFFFB74D.toInt(), "接近安全限值，减少暴露时间"),
+        VERY_HIGH("危险", 0xFFFF8A80.toInt(), "超过安全建议值，立即远离")
     }
 
     data class SafetyStandard(

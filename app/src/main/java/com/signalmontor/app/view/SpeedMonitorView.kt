@@ -30,7 +30,7 @@ class SpeedMonitorView @JvmOverloads constructor(
     private val speedArcBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 14f
-        color = 0xFFE8E8E8.toInt()
+        color = 0xFF2A3550.toInt()
     }
 
     private val speedTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -77,7 +77,7 @@ class SpeedMonitorView @JvmOverloads constructor(
     private val headingArcBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 4f
-        color = 0xFFE8E8E8.toInt()
+        color = 0xFF2A3550.toInt()
     }
 
     private val headingTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -87,14 +87,14 @@ class SpeedMonitorView @JvmOverloads constructor(
 
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         strokeWidth = 1f
-        color = 0xFFEEEEEE.toInt()
+        color = 0xFF1AFFFFFF.toInt()
     }
 
     private val speedRect = RectF()
     private val headingRect = RectF()
     private var animatedSpeed = 0f
     private var animatedHeading = 0f
-    private var currentColor = 0xFF9E9E9E.toInt()
+    private var currentColor = 0xFF8A94A6.toInt()
 
     private var currentSpeedData: SpeedCalculator.SpeedData? = null
 
@@ -151,7 +151,7 @@ class SpeedMonitorView @JvmOverloads constructor(
         headingAnimator?.cancel()
         animatedSpeed = 0f
         animatedHeading = 0f
-        currentColor = 0xFF9E9E9E.toInt()
+        currentColor = 0xFF8A94A6.toInt()
         currentSpeedData = null
         invalidate()
     }
@@ -207,11 +207,11 @@ class SpeedMonitorView @JvmOverloads constructor(
 
     private fun drawPlaceholder(canvas: Canvas, w: Float, h: Float) {
         canvas.drawArc(speedRect, 135f, 270f, false, speedArcBgPaint)
-        speedTextPaint.color = 0xFF9E9E9E.toInt()
+        speedTextPaint.color = 0xFF8A94A6.toInt()
         canvas.drawText("0.0", speedRect.centerX(), speedRect.centerY() + speedTextPaint.textSize / 3, speedTextPaint)
 
         canvas.drawCircle(headingRect.centerX(), headingRect.centerY(), headingRect.width() / 2f, headingArcBgPaint)
-        compassTextPaint.color = 0xFF9E9E9E.toInt()
+        compassTextPaint.color = 0xFF8A94A6.toInt()
         canvas.drawText("等待传感器数据...", w / 2f, h / 2f, compassTextPaint)
     }
 
@@ -243,7 +243,7 @@ class SpeedMonitorView @JvmOverloads constructor(
             val isMajor = i % 2 == 0
             val tickLen = if (isMajor) 12f else 6f
             tickPaint.strokeWidth = if (isMajor) 2.5f else 1.5f
-            tickPaint.color = if (isMajor) 0xFF757575.toInt() else 0xFFBDBDBD.toInt()
+            tickPaint.color = if (isMajor) 0xFF8A94A6.toInt() else 0xFF4A5568.toInt()
 
             val x1 = (cx + (r - tickLen) * cos(rad)).toFloat()
             val y1 = (cy + (r - tickLen) * sin(rad)).toFloat()
@@ -258,7 +258,7 @@ class SpeedMonitorView @JvmOverloads constructor(
                 val ly = (cy + labelR * sin(labelRad)).toFloat()
                 val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     textSize = 9f
-                    color = 0xFF616161.toInt()
+                    color = 0xFF8A94A6.toInt()
                     textAlign = Paint.Align.CENTER
                 }
                 canvas.drawText("${speedRanges[i / 2]}", lx, ly + 3, labelPaint)
@@ -275,7 +275,7 @@ class SpeedMonitorView @JvmOverloads constructor(
         // Unit - below speed number
         val unitSize = r * 0.18f
         unitTextPaint.textSize = unitSize
-        unitTextPaint.color = 0xFF757575.toInt()
+        unitTextPaint.color = 0xFF8A94A6.toInt()
         unitTextPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("km/h", cx, cy + speedTextSize + unitSize + 4, unitTextPaint)
 
@@ -291,10 +291,10 @@ class SpeedMonitorView @JvmOverloads constructor(
         val descTextSize = width * 0.032f
         descTextPaint.textSize = descTextSize
         descTextPaint.textAlign = Paint.Align.CENTER
-        descTextPaint.color = 0xFF4CAF50.toInt()
+        descTextPaint.color = 0xFF69F0AE.toInt()
         canvas.drawText(data.speedDescription, cx, descStartY + descTextSize, descTextPaint)
 
-        descTextPaint.color = 0xFF2196F3.toInt()
+        descTextPaint.color = 0xFF81D4FA.toInt()
         canvas.drawText(data.altitudeDescription, cx, descStartY + descTextSize * 2 + 8, descTextPaint)
     }
 
@@ -327,7 +327,7 @@ class SpeedMonitorView @JvmOverloads constructor(
             val isMid = angle % 45 == 0f
             val tickLen = if (isMajor) 8f else if (isMid) 5f else 2f
             tickPaint.strokeWidth = if (isMajor) 2f else 1f
-            tickPaint.color = if (isMajor) 0xFF424242.toInt() else 0xFFBDBDBD.toInt()
+            tickPaint.color = if (isMajor) 0xFF8A94A6.toInt() else 0xFF4A5568.toInt()
 
             val x1 = (cx + (r - tickLen) * cos(rad)).toFloat()
             val y1 = (cy + (r - tickLen) * sin(rad)).toFloat()
@@ -340,10 +340,10 @@ class SpeedMonitorView @JvmOverloads constructor(
         val labelR = r * 0.72f
         compassTextPaint.textAlign = Paint.Align.CENTER
 
-        compassTextPaint.color = 0xFFF44336.toInt()
+        compassTextPaint.color = 0xFFFF6E6E.toInt()
         canvas.drawText("N", cx, cy - labelR + compassTextPaint.textSize / 3, compassTextPaint)
 
-        compassTextPaint.color = 0xFF757575.toInt()
+        compassTextPaint.color = 0xFF8A94A6.toInt()
         canvas.drawText("S", cx, cy + labelR + compassTextPaint.textSize / 3, compassTextPaint)
         canvas.drawText("E", cx + labelR, cy + compassTextPaint.textSize / 3, compassTextPaint)
         canvas.drawText("W", cx - labelR, cy + compassTextPaint.textSize / 3, compassTextPaint)
@@ -352,7 +352,7 @@ class SpeedMonitorView @JvmOverloads constructor(
         canvas.save()
         canvas.rotate(data.bearing, cx, cy)
 
-        compassPaint.color = 0xFFF44336.toInt()
+        compassPaint.color = 0xFFFF6E6E.toInt()
         val arrowPath = Path()
         arrowPath.moveTo(cx, cy - r * 0.50f)
         arrowPath.lineTo(cx - r * 0.14f, cy + r * 0.08f)
@@ -360,7 +360,7 @@ class SpeedMonitorView @JvmOverloads constructor(
         arrowPath.close()
         canvas.drawPath(arrowPath, compassPaint)
 
-        compassPaint.color = 0xFF9E9E9E.toInt()
+        compassPaint.color = 0xFF8A94A6.toInt()
         val tailPath = Path()
         tailPath.moveTo(cx, cy + r * 0.45f)
         tailPath.lineTo(cx - r * 0.08f, cy)
@@ -371,7 +371,7 @@ class SpeedMonitorView @JvmOverloads constructor(
         // Center dot
         compassPaint.color = 0xFFFFFFFF.toInt()
         canvas.drawCircle(cx, cy, r * 0.06f, compassPaint)
-        compassPaint.color = 0xFF424242.toInt()
+        compassPaint.color = 0xFF8A94A6.toInt()
         canvas.drawCircle(cx, cy, r * 0.03f, compassPaint)
 
         canvas.restore()
@@ -379,12 +379,12 @@ class SpeedMonitorView @JvmOverloads constructor(
         // Degree text below compass
         val textStartY = headingRect.bottom + 4f
         headingTextPaint.textAlign = Paint.Align.CENTER
-        headingTextPaint.color = 0xFF212121.toInt()
+        headingTextPaint.color = 0xFFF5F7FA.toInt()
         canvas.drawText(String.format("%.0f\u00B0", data.bearing), cx, textStartY + headingTextPaint.textSize, headingTextPaint)
 
         // Direction label below degree
         descTextPaint.textAlign = Paint.Align.CENTER
-        descTextPaint.color = 0xFF757575.toInt()
+        descTextPaint.color = 0xFF8A94A6.toInt()
         canvas.drawText(data.direction, cx, textStartY + headingTextPaint.textSize + descTextPaint.textSize + 4f, descTextPaint)
     }
 
@@ -396,59 +396,59 @@ class SpeedMonitorView @JvmOverloads constructor(
         var y = h * 0.52f
         val lineHeight = h * 0.05f
 
-        infoLabelPaint.color = 0xFF9E9E9E.toInt()
+        infoLabelPaint.color = 0xFF8A94A6.toInt()
         infoValuePaint.textAlign = Paint.Align.LEFT
         infoLabelPaint.textAlign = Paint.Align.LEFT
 
         drawRow(canvas, "加速度", String.format("%.2f m/s\u00B2", data.acceleration), getAccelColor(data.acceleration), col1X, valX1, y)
         
         val maxSpeedLabel = if (data.usingStepSpeed) "步频速度" else "最高速"
-        val maxSpeedColor = if (data.usingStepSpeed) 0xFF4CAF50.toInt() else currentColor
+        val maxSpeedColor = if (data.usingStepSpeed) 0xFF69F0AE.toInt() else currentColor
         drawRow(canvas, maxSpeedLabel, String.format("%.1f km/h", data.maxSpeed), maxSpeedColor, col2X, valX2, y)
         y += lineHeight
 
-        drawRow(canvas, "总距离", String.format("%.3f km", data.totalDistance), 0xFF212121.toInt(), col1X, valX1, y)
+        drawRow(canvas, "总距离", String.format("%.3f km", data.totalDistance), 0xFFF5F7FA.toInt(), col1X, valX1, y)
         
         val stepText = if (data.stepFrequency > 0) "${data.stepCount} 步 (${String.format("%.1f", data.stepFrequency)}Hz)" else "${data.stepCount} 步"
-        val stepColor = if (data.usingStepSpeed) 0xFF4CAF50.toInt() else 0xFF212121.toInt()
+        val stepColor = if (data.usingStepSpeed) 0xFF69F0AE.toInt() else 0xFFF5F7FA.toInt()
         drawRow(canvas, "步数", stepText, stepColor, col2X, valX2, y)
         y += lineHeight
 
         val altText = if (data.hasBarometer) String.format("%.1f m", data.altitude) else if (data.gpsAltitude != 0f) String.format("%.1f m (GPS)", data.gpsAltitude) else "--"
-        val altColor = if (data.hasBarometer) 0xFF2196F3.toInt() else if (data.gpsAltitude != 0f) 0xFFFF9800.toInt() else 0xFF9E9E9E.toInt()
+        val altColor = if (data.hasBarometer) 0xFF81D4FA.toInt() else if (data.gpsAltitude != 0f) 0xFFFFD54F.toInt() else 0xFF8A94A6.toInt()
         drawRow(canvas, "海拔", altText, altColor, col1X, valX1, y)
 
         val confText = if (data.usingStepSpeed) String.format("%.0f%% 步频", data.walkingConfidence * 100) else String.format("%.0f%%", data.confidence * 100)
-        val confColor = if (data.usingStepSpeed && data.walkingConfidence > 0.5f) 0xFF4CAF50.toInt() else 0xFF757575.toInt()
+        val confColor = if (data.usingStepSpeed && data.walkingConfidence > 0.5f) 0xFF69F0AE.toInt() else 0xFF8A94A6.toInt()
         drawRow(canvas, "置信度", confText, confColor, col2X, valX2, y)
         y += lineHeight
 
         val gravText = String.format("\u00B1%.0fm", data.gpsAccuracy)
         val gravColor = when {
-            data.gpsAccuracy < 20f -> 0xFF4CAF50.toInt()
-            data.gpsAccuracy < 50f -> 0xFFFFC107.toInt()
-            else -> 0xFFF44336.toInt()
+            data.gpsAccuracy < 20f -> 0xFF69F0AE.toInt()
+            data.gpsAccuracy < 50f -> 0xFFFFD54F.toInt()
+            else -> 0xFFFF6E6E.toInt()
         }
         drawRow(canvas, "GPS精度", gravText, gravColor, col1X, valX1, y)
 
         val pressText = if (data.hasBarometer && data.pressure > 0) String.format("%.1f hPa", data.pressure) else "--"
-        drawRow(canvas, "气压", pressText, 0xFF4CAF50.toInt(), col2X, valX2, y)
+        drawRow(canvas, "气压", pressText, 0xFF69F0AE.toInt(), col2X, valX2, y)
 
         if (data.temperature != 0f) {
             y += lineHeight
-            drawRow(canvas, "温度", String.format("%.1f \u00B0C", data.temperature), 0xFFFF9800.toInt(), col1X, valX1, y)
+            drawRow(canvas, "温度", String.format("%.1f \u00B0C", data.temperature), 0xFFFFD54F.toInt(), col1X, valX1, y)
             
             val rateText = if (data.altitudeChangeRate > 0) "+%.1f m/s" else "%.1f m/s"
-            drawRow(canvas, "升降率", String.format(rateText, data.altitudeChangeRate), if (data.altitudeChangeRate > 0) 0xFFF44336.toInt() else 0xFF2196F3.toInt(), col2X, valX2, y)
+            drawRow(canvas, "升降率", String.format(rateText, data.altitudeChangeRate), if (data.altitudeChangeRate > 0) 0xFFFF6E6E.toInt() else 0xFF81D4FA.toInt(), col2X, valX2, y)
         } else if (data.altitudeChangeRate != 0f) {
             y += lineHeight
             val rateText = if (data.altitudeChangeRate > 0) "+%.1f m/s" else "%.1f m/s"
-            drawRow(canvas, "升降率", String.format(rateText, data.altitudeChangeRate), if (data.altitudeChangeRate > 0) 0xFFF44336.toInt() else 0xFF2196F3.toInt(), col2X, valX2, y)
+            drawRow(canvas, "升降率", String.format(rateText, data.altitudeChangeRate), if (data.altitudeChangeRate > 0) 0xFFFF6E6E.toInt() else 0xFF81D4FA.toInt(), col2X, valX2, y)
         }
     }
 
     private fun drawRow(canvas: Canvas, label: String, value: String, valueColor: Int, labelX: Float, valX: Float, y: Float) {
-        infoLabelPaint.color = 0xFF9E9E9E.toInt()
+        infoLabelPaint.color = 0xFF8A94A6.toInt()
         canvas.drawText(label, labelX, y, infoLabelPaint)
         infoValuePaint.color = valueColor
         canvas.drawText(value, valX, y, infoValuePaint)
@@ -456,10 +456,10 @@ class SpeedMonitorView @JvmOverloads constructor(
 
     private fun getAccelColor(accel: Float): Int {
         return when {
-            accel < 2f -> 0xFF4CAF50.toInt()
-            accel < 5f -> 0xFFFFC107.toInt()
-            accel < 10f -> 0xFFFF9800.toInt()
-            else -> 0xFFF44336.toInt()
+            accel < 2f -> 0xFF69F0AE.toInt()
+            accel < 5f -> 0xFFFFD54F.toInt()
+            accel < 10f -> 0xFFFFB74D.toInt()
+            else -> 0xFFFF6E6E.toInt()
         }
     }
 }
