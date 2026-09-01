@@ -28,22 +28,18 @@ APK_NAME="$(basename "$APK_URL")"
 info "源: $APK_URL"
 
 # 4. 确定宿主可访问的下载目录（PRoot 视角与宿主视角需重叠）
-#    候选 1：Termux 共享存储（termux-setup-storage 后挂载）
+#    候选 1：Termux 共享存储（若已挂载）
 #    候选 2：Termux home 私有目录（termux-open 的 FileProvider 可转发给安装器）
+# 注意：不在本脚本内调用 termux-setup-storage —— 该命令会重建目录结构并清掉 downloads，
+#       需授权时请在 Termux 原生 shell 中手动执行一次。
 resolve_download_dir() {
     if [[ -d /data/data/com.termux/files/home/storage/downloads ]]; then
         echo "/data/data/com.termux/files/home/storage/downloads"
         return
     fi
-    # 尝试唤醒存储授权
-    if command -v termux-setup-storage >/dev/null 2>&1; then
-        warn "共享存储未挂载，尝试 termux-setup-storage（请在手机上确认授权）"
-        termux-setup-storage 2>/dev/null || true
-        sleep 2
-        if [[ -d /data/data/com.termux/files/home/storage/downloads ]]; then
-            echo "/data/data/com.termux/files/home/storage/downloads"
-            return
-        fi
+    if [[ -d /data/data/com.termux/files/home/downloads ]]; then
+        echo "/data/data/com.termux/files/home/downloads"
+        return
     fi
     mkdir -p /data/data/com.termux/files/home/downloads
     echo "/data/data/com.termux/files/home/downloads"

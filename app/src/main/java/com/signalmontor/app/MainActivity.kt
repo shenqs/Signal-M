@@ -23,6 +23,7 @@ import android.telephony.CellInfoNr
 import android.telephony.CellSignalStrengthLte
 import android.telephony.CellSignalStrengthNr
 import android.telephony.TelephonyManager
+import android.util.Log
 import android.view.View
 import android.view.animation.AnimationUtils
 import android.widget.Button
@@ -59,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var satelliteCard: MaterialCardView
     private lateinit var overallCard: MaterialCardView
     private lateinit var standardsCard: MaterialCardView
+    private lateinit var httpServerCard: MaterialCardView
     private lateinit var permissionBtn: Button
 
     private var wifiManager: android.net.wifi.WifiManager? = null
@@ -141,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         initManagers()
         initSensors()
         setupListeners()
+        setupAdaptiveLayout()
         showPermissionDialog()
         renderStandards()
     }
@@ -153,6 +156,7 @@ class MainActivity : AppCompatActivity() {
         satelliteCard = findViewById(R.id.satelliteCard)
         overallCard = findViewById(R.id.overallCard)
         standardsCard = findViewById(R.id.standardsCard)
+        httpServerCard = findViewById(R.id.httpServerCard)
         permissionBtn = findViewById(R.id.permissionBtn)
         speedMonitorView = findViewById(R.id.speedMonitorView)
 
@@ -183,6 +187,48 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { addDownloadLog("❌ 错误: $message") }
             }
         }
+    }
+
+    // v21: 折叠屏/大屏自适应 —— 基于实际布局宽度动态切列（覆盖旋转、折叠展开、分屏等窗口变化）
+    private var adaptiveWide = false
+
+    private fun setupAdaptiveLayout() {
+        val content = findViewById<com.google.android.flexbox.FlexboxLayout>(R.id.contentFlex)
+        content.addOnLayoutChangeListener { _, left, _: Int, right, _: Int, _, _, _, _ ->
+            val widthDp = (right - left) / resources.displayMetrics.density
+            applyColumnMode(widthDp)
+        }
+        content.post {
+            val widthDp = content.width / resources.displayMetrics.density
+            applyColumnMode(widthDp)
+        }
+    }
+
+    private fun applyColumnMode(widthDp: Float) {
+        val wide = widthDp >= 600f
+        if (wide == adaptiveWide) return
+        adaptiveWide = wide
+
+        // 半宽卡片（宽屏时双列）：信号/辐射/标准/HTTP
+        val halfCards = listOf(wifiCard, cellularCard, overallCard, standardsCard, httpServerCard)
+        // 全宽卡片（含双仪表/3D视图，窄屏再切回单列）
+        val fullCards = listOf(speedCard, satelliteCard)
+
+        if (wide) {
+            halfCards.forEach { setFlexBasis(it, 46f, 1f) }
+            fullCards.forEach { setFlexBasis(it, 100f, 0f) }
+            Log.d("Adaptive", "宽屏模式: 双列")
+        } else {
+            (halfCards + fullCards).forEach { setFlexBasis(it, 100f, 0f) }
+            Log.d("Adaptive", "窄屏模式: 单列")
+        }
+    }
+
+    private fun setFlexBasis(view: View, percent: Float, grow: Float) {
+        val lp = view.layoutParams as? com.google.android.flexbox.FlexboxLayout.LayoutParams ?: return
+        lp.flexBasisPercent = percent
+        lp.flexGrow = grow
+        view.layoutParams = lp
     }
 
     private fun initManagers() {

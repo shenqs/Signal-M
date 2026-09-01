@@ -840,4 +840,161 @@ class SpeedCalculatorTest {
         assertEquals(0, data.stepCount)
         assertEquals(0f, data.stepFrequency, 0.01f)
     }
+
+    // ==================== v21 精准化测试 ====================
+
+    // 高精度 GPS (accuracy<15)：平滑 alpha 大，速度应快速收敛到目标
+    @Test
+    fun testAdaptiveSmoothing_PreciseGpsRespondsFast() {
+        repeat(10) {
+            calculator.updateGpsSpeed(30f, 6f)
+            calculator.updateLocationSpeed(30f)
+            calculator.getSpeed()
+        }
+        val data = calculator.getSpeed()
+        assertTrue("高精度下应快速接近 108km/h, 实际 ${data.speed}", data.speed > 60f)
+    }
+
+    // 低精度 GPS (accuracy>60)：强滤噪，目标变化时速度应缓慢移动（抖动被抑制）
+    @Test
+    fun testAdaptiveSmoothing_NoisyGpsJitterSuppressed() {
+        // 先建立 ~54 km/h (15m/s) 的稳定基准
+        repeat(60) {
+            calculator.updateGpsSpeed(15f, 80f)
+            calculator.updateLocationSpeed(15f)
+            calculator.getSpeed()
+        }
+        // 单次噪声尖峰 40m/s (=144km/h) 不应让速度大幅上跳
+        calculator.updateGpsSpeed(40f, 80f)
+        calculator.updateLocationSpeed(40f)
+        val data = calculator.getSpeed()
+        assertTrue("噪声尖峰应被抑制, 实际 ${data.speed}", data.speed < 80f)
+        assertTrue("应保持近基准, 实际 ${data.speed}", data.speed > 40f)
+    }
+
+    // 飞行高速确认：单个 140m/s (504km/h) 高精度样本不应被采纳
+    @Test
+    fun testHighSpeed_RequiresConfirmation() {
+        repeat(10) { calculator.getSpeed() }
+        calculator.updateGpsSpeed(0f, 5f)
+        calculator.getSpeed()
+        calculator.updateGpsSpeed(140f, 10f)
+        calculator.updateLocationSpeed(140f)
+        val data = calculator.getSpeed()
+        assertTrue("单样本高速不应采纳, 实际 ${data.speed}", data.speed < 500f)
+    }
+
+    // 飞行高速确认通过：稳定在中速后，连续 2 个高精度样本采纳起飞速度
+    @Test
+    fun testHighSpeed_ConfirmedAfterTwoSamples() {
+        // 先稳定在 ~200 km/h (55.5 m/s)
+        repeat(50) {
+            calculator.updateGpsSpeed(55.5f, 8f)
+            calculator.updateLocationSpeed(55.5f)
+            calculator.getSpeed()
+        }
+        // 第一样本(需确认): 500+ km/h 暂不采纳
+        calculator.updateGpsSpeed(140f, 10f)
+        calculator.updateLocationSpeed(140f)
+        calculator.getSpeed()
+        // 第二样本: 确认后采纳并快速上跳
+        calculator.updateGpsSpeed(141f, 10f)
+        calculator.updateLocationSpeed(141f)
+        val data = calculator.getSpeed()
+        assertTrue("连续样本确认后应采纳高速, 实际 ${data.speed}", data.speed > 300f)
+    }
+
+    // 已处于高速 (>300km/h) 时，新高速样本应直接跟随（无需二次确认）
+    @Test
+    fun testHighSpeed_AlreadyHighFollowsImmediately() {
+        repeat(80) {
+            calculator.updateGpsSpeed(100f, 8f)
+            calculator.updateLocationSpeed(100f)
+            calculator.getSpeed()
+        }
+        calculator.updateGpsSpeed(160f, 10f)
+        calculator.updateLocationSpeed(160f)
+        val data = calculator.getSpeed()
+        assertTrue("高速状态应直接跟随, 实际 ${data.speed}", data.speed > 500f)
+    }
+
+    // gpsAcceleration 应被钳制在 ±8 m/s² 内
+    @Test
+    fun testGpsAcceleration_ClampedToRealisticBounds() {
+        // 模拟两次采样间速度突变 50m/s、dt≈1s → 原始加速度 50 > 8
+        calculator.updateGpsSpeed(10f, 8f)
+        Thread.sleep(1100)
+        calculator.updateGpsSpeed(60f, 8f)
+        calculator.getSpeed()
+        val data = calculator.getSpeed()
+        assertTrue("加速度应被钳制, 实际 ${data.acceleration}", data.acceleration <= 8f)
+        assertTrue(data.acceleration >= -8f)
+    }
+
+    // 静止滞回：0.6km/h 噪声不应令状态在静止/运动间抖动
+    @Test
+    fun testStationaryHysteresis_NoFlicker() {
+        // 稳定在低速区 (0.5m/s=1.8km/h)，再回到 0.1m/s
+        repeat(20) {
+            calculator.updateGpsSpeed(0.5f, 5f)
+            calculator.updateLocationSpeed(0.5f)
+            calculator.getSpeed()
+        }
+        repeat(20) {
+            calculator.updateGpsSpeed(0.1f, 5f)
+            calculator.updateLocationSpeed(0.1f)
+            calculator.getSpeed()
+        }
+        val stationary = calculator.getSpeed()
+        assertEquals("低速噪声不应报运动状态", MovementState.STATIONARY, stationary.movementState)
+    }
+
+    // 停驻车辆（低方差环境、无运动瞬态）不应被误判为高速行驶
+    @Test
+    fun testInertialEstimate_ParkedCarNotMisjudged() {
+        // 模拟静止环境: 重复平滑的线性加速度（无瞬态）+ 无 GPS
+        repeat(80) {
+            calculator.injectImuSample(0.02f, 0.001f, 0.001f, 0.001f)
+        }
+        repeat(30) { calculator.getSpeed() }
+        val data = calculator.getSpeed()
+        assertEquals("停驻车辆不应误判出速度", 0f, data.speed, 0.01f)
+        assertFalse("不应标记为惯性测速", data.usingInertialSpeed)
+    }
+
+    // 有运动瞬态 + 连续一致估计 → 惯性初始速度被确认（>20 次评估 + 连续 3 桶）
+    @Test
+    fun testInertialEstimate_ConfirmedWithTransientAndConsistency() {
+        // 先制造运动瞬态（起步冲击）
+        calculator.injectImuSample(0.01f, 0.001f, 0.001f, 0.001f)
+        calculator.injectImuSample(1.4f, 0.06f, 0.06f, 0.06f)
+        calculator.injectImuSample(0.01f, 0.001f, 0.001f, 0.001f)
+        // 然后进入平稳"行驶"环境：中等方差（0.1~0.3）+ 轻微角速度
+        var v = 0f
+        var dir = 1f
+        repeat(240) {
+            v += dir * 0.4f
+            if (v > 0.8f) dir = -1f
+            if (v < -0.8f) dir = 1f
+            calculator.injectImuSample(v, 0.02f, 0.01f, 0.01f)
+            calculator.getSpeed()
+        }
+        val data = calculator.getSpeed()
+        assertTrue("有瞬态+一致估计应产出惯性速度, 实际 ${data.speed}", data.speed > 0f)
+    }
+
+    // 步频带外的高频抖动（4.5Hz）不应被采纳为有效步频/速度
+    @Test
+    fun testStepCadence_OutOfBandRejected() {
+        var v = 0f
+        var dir = 1f
+        repeat(300) {
+            v += dir * 0.6f
+            if (v > 1.5f) dir = -1f
+            if (v < -1.5f) dir = 1f
+            calculator.injectImuSample(v, 0.01f, 0.01f, 0.01f)
+        }
+        val data = calculator.getSpeed()
+        assertTrue("高频抖动不应产生步频估计, 实际 ${data.speedMs}", data.speedMs < 1f)
+    }
 }

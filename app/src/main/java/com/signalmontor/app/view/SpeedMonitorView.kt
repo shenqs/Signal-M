@@ -394,7 +394,7 @@ class SpeedMonitorView @JvmOverloads constructor(
         val valX1 = width * 0.22f
         val valX2 = width * 0.70f
         var y = h * 0.52f
-        val lineHeight = h * 0.055f
+        val lineHeight = h * 0.05f
 
         infoLabelPaint.color = 0xFF9E9E9E.toInt()
         infoValuePaint.textAlign = Paint.Align.LEFT
@@ -423,8 +423,13 @@ class SpeedMonitorView @JvmOverloads constructor(
         drawRow(canvas, "置信度", confText, confColor, col2X, valX2, y)
         y += lineHeight
 
-        val gravText = String.format("%.3f m/s\u00B2", data.gravityMagnitude)
-        drawRow(canvas, "重力", gravText, 0xFF757575.toInt(), col1X, valX1, y)
+        val gravText = String.format("\u00B1%.0fm", data.gpsAccuracy)
+        val gravColor = when {
+            data.gpsAccuracy < 20f -> 0xFF4CAF50.toInt()
+            data.gpsAccuracy < 50f -> 0xFFFFC107.toInt()
+            else -> 0xFFF44336.toInt()
+        }
+        drawRow(canvas, "GPS精度", gravText, gravColor, col1X, valX1, y)
 
         val pressText = if (data.hasBarometer && data.pressure > 0) String.format("%.1f hPa", data.pressure) else "--"
         drawRow(canvas, "气压", pressText, 0xFF4CAF50.toInt(), col2X, valX2, y)

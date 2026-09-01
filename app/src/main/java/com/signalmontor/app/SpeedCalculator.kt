@@ -52,6 +52,34 @@ class SpeedCalculator {
         private const val INERTIAL_ACCEL_FACTOR = 0.5f
         private const val INERTIAL_MAX_ACCEL_CHANGE = 5f
         private const val INERTIAL_MIN_SPEED_FOR_ACCEL = 10f
+
+        // v21 精准化：GPS 精度自适应平滑
+        private const val GPS_ACCURACY_FAST = 15f
+        private const val GPS_ACCURACY_MODERATE = 30f
+        private const val GPS_ACCURACY_FAIR = 60f
+        private const val ALPHA_GPS_FAST = 0.5f
+        private const val ALPHA_GPS_GOOD = 0.3f
+        private const val ALPHA_GPS_FAIR = 0.15f
+        private const val ALPHA_GPS_POOR = 0.08f
+        private const val GPS_MAX_ACCEL_MS2 = 8f
+        private const val GPS_ACCEL_SMOOTH_ALPHA = 0.25f
+
+        // v21 精准化：飞行高速确认（防静止时毛刺误报 500+ km/h）
+        private const val HIGH_SPEED_KMH = 500f
+        private const val HIGH_SPEED_CONFIRM_SAMPLES = 2
+        private const val ALREADY_HIGH_SPEED_KMH = 300f
+
+        // v21 精准化：静止/运动状态滞回（防静止 GPS 噪声抖动）
+        private const val STATIONARY_HYST_LOW_KMH = 0.4f
+        private const val STATIONARY_HYST_HIGH_KMH = 1.0f
+
+        // v21 精准化：步频带收紧到人类真实范围，且需幅度支撑
+        private const val STEP_FREQ_MIN_HZ = 0.7f
+        private const val STEP_FREQ_MAX_HZ = 3.2f
+
+        // v21 精准化：惯性初始速度估计防误判
+        private const val CONSISTENT_ESTIMATE_REQUIRED = 3
+        private const val MOTION_TRANSIENT_THRESHOLD = 0.4f
 }
     
     private var kalmanP = 0f; private var kalmanX = 0f; private var kalmanR = 0.1f; private var kalmanQ = 0.001f; private var kalmanReady = false
@@ -88,6 +116,11 @@ class SpeedCalculator {
     private var gpsSpeed = 0f; private var gpsAccuracy = 0f; private var lastGpsSpeed = 0f
     private var displaySpeed = 0f; private var displayBearing = 0f; private var displayAcceleration = 0f
     private var hasGpsFix = false; private var lastGpsUpdateTime = 0L
+    private var highSpeedConfirmation = 0
+    private var stationaryState = false
+    private var motionTransientObserved = false
+    private var lastEstimateBucket = -1
+    private var consistentEstimateCount = 0
     
     private var inertialSpeed = 0f
     private var inertialSpeedTime = 0L
@@ -144,17 +177,34 @@ class SpeedCalculator {
     fun processLinearAcceleration(e: SensorEvent) {
         linearAcceleration[0] = e.values[0]; linearAcceleration[1] = e.values[1]; linearAcceleration[2] = e.values[2]
         val rawMag = sqrt(linearAcceleration[0] * linearAcceleration[0] + linearAcceleration[1] * linearAcceleration[1] + linearAcceleration[2] * linearAcceleration[2])
-        accelHistory.add(rawMag)
-        if (accelHistory.size > ACCEL_WINDOW_SIZE) accelHistory.removeAt(0)
-        val avgAccel = if (accelHistory.size >= ACCEL_WINDOW_SIZE / 2) accelHistory.average().toFloat() else rawMag
-        if (smoothedAcceleration == 0f) smoothedAcceleration = avgAccel else smoothedAcceleration += ACCEL_SMOOTH_ALPHA * (avgAccel - smoothedAcceleration)
-        currentAcceleration = avgAccel * GRAVITY
+        feedAccelerationSample(rawMag)
         lastUpdate = e.timestamp / 1_000_000
-        detectStep(rawMag)
-        
+
         val dt = if (lastUpdate > 0) 0.016f else 0f
         val gyroMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ)
         confidenceCalculator.updateIMUData(rawMag + GRAVITY, gyroMag, dt)
+    }
+
+    // v21 测试注入口：绕过 SensorEvent 依赖，供单元测试注入 IMU 样本（生产路径不受影响）
+    internal fun injectImuSample(accelMag: Float, gyroMagX: Float, gyroMagY: Float, gyroMagZ: Float) {
+        gyroX = gyroMagX; gyroY = gyroMagY; gyroZ = gyroMagZ
+        feedAccelerationSample(accelMag)
+        val gyroMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ)
+        confidenceCalculator.updateIMUData(accelMag + GRAVITY, gyroMag, 0.016f)
+    }
+
+    private fun feedAccelerationSample(rawMag: Float) {
+        accelHistory.add(rawMag)
+        if (accelHistory.size > ACCEL_WINDOW_SIZE) accelHistory.removeAt(0)
+        // v21: 记录运动瞬态（起步/颠簸），供初始速度估计防误判
+        if (accelHistory.size >= 2) {
+            val lastDelta = kotlin.math.abs(rawMag - accelHistory[accelHistory.size - 2])
+            if (lastDelta > MOTION_TRANSIENT_THRESHOLD) motionTransientObserved = true
+        }
+        val avgAccel = if (accelHistory.size >= ACCEL_WINDOW_SIZE / 2) accelHistory.average().toFloat() else rawMag
+        if (smoothedAcceleration == 0f) smoothedAcceleration = avgAccel else smoothedAcceleration += ACCEL_SMOOTH_ALPHA * (avgAccel - smoothedAcceleration)
+        currentAcceleration = avgAccel * GRAVITY
+        detectStep(rawMag)
     }
 
     private fun detectStep(accelMag: Float) {
@@ -216,7 +266,8 @@ class SpeedCalculator {
                                 if (avgInterval > 0 && avgInterval < 2000) {
                                     val rawFreq = 1000f / avgInterval.toFloat()
                                     
-                                    if (rawFreq in 0.5f..4.0f) {
+                                    // v21: 步频带收紧到人类真实范围（约 42~192 步/分钟）
+                                    if (rawFreq in STEP_FREQ_MIN_HZ..STEP_FREQ_MAX_HZ) {
                                         smoothedStepFrequency += STEP_FREQ_SMOOTH_ALPHA * (rawFreq - smoothedStepFrequency)
                                         stepFrequency = smoothedStepFrequency.coerceIn(0.5f, 3.5f)
                                         
@@ -420,7 +471,10 @@ class SpeedCalculator {
             val nowMs = System.currentTimeMillis()
             val dt = (nowMs - lastGpsSpeedTime) / 1000f
             if (dt > 0.2f && dt < 5f) {
-                gpsAcceleration = ((s - lastGpsSpeedForAccel) / dt).coerceIn(-20f, 20f)
+                // v21: 加速度钳制到真实车辆极限(约0.8G)并指数平滑，抑制 GPS 差分噪声
+                val rawAccel = ((s - lastGpsSpeedForAccel) / dt).coerceIn(-GPS_MAX_ACCEL_MS2, GPS_MAX_ACCEL_MS2)
+                gpsAcceleration = if (gpsAcceleration == 0f) rawAccel
+                else gpsAcceleration + GPS_ACCEL_SMOOTH_ALPHA * (rawAccel - gpsAcceleration)
             }
         }
         lastGpsSpeedForAccel = s
@@ -431,33 +485,53 @@ class SpeedCalculator {
     fun updateLocationSpeed(s: Float) {
         if (s.isNaN() || s < 0f || s > GPS_SPEED_MAX_MS) return
         val kmh = s * 3.6f
-        
+
         if (gpsAccuracy > 50f && kmh > 100f) {
             return
         }
-        
-        if (kmh > 500f && gpsAccuracy < 30f) {
-            displaySpeed = kmh
+
+        // v21: 飞行高速需样本确认，防静止时单个毛刺误报 500+ km/h
+        if (kmh > HIGH_SPEED_KMH && gpsAccuracy < 30f) {
+            if (displaySpeed > ALREADY_HIGH_SPEED_KMH || highSpeedConfirmation >= HIGH_SPEED_CONFIRM_SAMPLES) {
+                displaySpeed = kmh
+            } else {
+                highSpeedConfirmation++
+            }
             return
         }
-        
+        highSpeedConfirmation = 0
+
+        // v21: 精度自适应平滑 alpha
+        val alpha = gpsSmoothingAlpha(gpsAccuracy)
         if (displaySpeed < 1f) {
             displaySpeed = kmh
         } else if (kmh > displaySpeed) {
             val diff = kmh - displaySpeed
             val isAccurateGps = gpsAccuracy < 30f
-            
+
             if (kmh > 100f && isAccurateGps) {
-                displaySpeed += 0.5f * (kmh - displaySpeed)
-            } else if (diff < maxOf(150f, displaySpeed * 1.5f)) {
-                displaySpeed += 0.25f * (kmh - displaySpeed)
+                // 高速且精度好：快速跟随，但不失稳
+                displaySpeed += maxOf(0.35f, alpha) * (kmh - displaySpeed)
+            } else if (diff >= maxOf(150f, displaySpeed * 1.5f)) {
+                // 超大跳变：疑似毛刺，强滤噪
+                displaySpeed += minOf(0.05f, alpha * 0.5f) * (kmh - displaySpeed)
             } else {
-                displaySpeed += 0.1f * (kmh - displaySpeed)
+                displaySpeed += alpha * (kmh - displaySpeed)
             }
         } else {
-            displaySpeed += 0.4f * (kmh - displaySpeed)
+            displaySpeed += maxOf(0.3f, alpha) * (kmh - displaySpeed)
         }
         displaySpeed = displaySpeed.coerceIn(0f, DISPLAY_SPEED_MAX)
+    }
+
+    // v21: 按 GPS 精度选择平滑强度——高精度快速跟随，低精度强滤噪
+    private fun gpsSmoothingAlpha(accuracy: Float): Float {
+        return when {
+            accuracy < GPS_ACCURACY_FAST -> ALPHA_GPS_FAST
+            accuracy < GPS_ACCURACY_MODERATE -> ALPHA_GPS_GOOD
+            accuracy < GPS_ACCURACY_FAIR -> ALPHA_GPS_FAIR
+            else -> ALPHA_GPS_POOR
+        }
     }
 
     fun getSpeed(): SpeedData {
@@ -514,7 +588,19 @@ class SpeedCalculator {
                                walkingConfidence > 0.3f &&
                                consecutiveSteps >= 3
         
-        val isGpsStationary = gpsValid && gpsKmh < 0.5f
+        val isGpsStationary = if (stationaryState) {
+            gpsValid && gpsKmh < STATIONARY_HYST_LOW_KMH
+        } else {
+            gpsValid && gpsKmh < STATIONARY_HYST_HIGH_KMH
+        }
+        // v21: 更新滞回状态（进入运动需 >1km/h，回落静止需 <0.4km/h，防噪声抖动）
+        if (!gpsValid) {
+            stationaryState = false
+        } else if (gpsKmh >= STATIONARY_HYST_HIGH_KMH) {
+            stationaryState = false
+        } else if (gpsKmh < STATIONARY_HYST_LOW_KMH) {
+            stationaryState = true
+        }
         val isLowGpsSpeed = gpsValid && gpsKmh < WALK_FUSION_SPEED_THRESHOLD && gpsKmh >= 0.5f
         
         val shouldUseStepFusion = isReallyWalking && !isGpsStationary && (isLowGpsSpeed || !gpsValid)
@@ -538,12 +624,23 @@ class SpeedCalculator {
         } else if (gpsValid && gpsKmh >= 0f && gpsKmh < DISPLAY_SPEED_MAX) {
             if (gpsKmh <= displaySpeed) {
                 rawKmh = gpsKmh
+                if (gpsKmh <= ALREADY_HIGH_SPEED_KMH) highSpeedConfirmation = 0
             } else {
                 val diff = gpsKmh - displaySpeed
                 val isStationary = displaySpeed < 1f
                 val isAccurateGps = gpsAccuracy < 30f
-                
-                if (isStationary && diff > 50f) {
+
+                // v21: 飞行高速确认门（与 updateLocationSpeed 共用 highSpeedConfirmation）
+                val highSpeedPending = gpsKmh > HIGH_SPEED_KMH && isAccurateGps &&
+                    displaySpeed <= ALREADY_HIGH_SPEED_KMH
+                if (highSpeedPending) {
+                    if (highSpeedConfirmation >= HIGH_SPEED_CONFIRM_SAMPLES) {
+                        rawKmh = gpsKmh
+                    } else {
+                        highSpeedConfirmation++
+                        rawKmh = displaySpeed
+                    }
+                } else if (isStationary && diff > 50f) {
                     rawKmh = displaySpeed
                 } else if (isStationary && isAccurateGps) {
                     rawKmh = gpsKmh
@@ -618,12 +715,17 @@ class SpeedCalculator {
         
         if (gpsValid || shouldUseStepFusion) {
             val isLowSpeed = rawKmh < 30f
-            val a = when {
+            var a = when {
                 inGpsRecoverTransition && rawKmh > prev -> 0.25f
                 rawKmh < displaySpeed -> 0.5f
                 isHighSpeed -> 0.6f
                 isLowSpeed -> 0.12f
                 else -> SPEED_SMOOTH_ALPHA
+            }
+            // v21: 低精度 GPS 按精度缩放平滑强度，抑制噪声抖动；恢复过渡期保持快速跟上
+            if (gpsValid && !inGpsRecoverTransition) {
+                val accFactor = (gpsSmoothingAlpha(gpsAccuracy) / ALPHA_GPS_FAST).coerceIn(0.2f, 1.0f)
+                a *= accFactor
             }
             displaySpeed += a * (rawKmh - displaySpeed)
             
@@ -740,12 +842,12 @@ class SpeedCalculator {
     
     private fun estimateInitialSpeedFromEnvironment() {
         if (accelHistory.size < 30) return
-        
+
         val accVariance = calculateVariance(accelHistory.takeLast(30))
         val gyroMag = sqrt(gyroX * gyroX + gyroY * gyroY + gyroZ * gyroZ)
-        
+
         initialSpeedEstimationCount++
-        
+
         val estimatedSpeed = when {
             accVariance < 0.1f && gyroMag < 0.05f -> 0f
             walkingDetected && stepFrequency > 0.5f -> estimatedStepSpeed * 3.6f
@@ -755,8 +857,34 @@ class SpeedCalculator {
             accVariance < 2.0f && gyroMag < 0.3f -> 300f
             else -> 0f
         }
-        
-        if (estimatedSpeed > 0f && initialSpeedEstimationCount > 60) {
+
+        // v21 防误判：车辆速度档（非步行）必须同时满足
+        //   1) 观察到运动瞬态（起步/颠簸），排除停驻车辆的纯低方差环境
+        //   2) 连续 CONSISTENT_ESTIMATE_REQUIRED 次落入同一速度桶，排除瞬时毛刺
+        val isVehicleBucket = estimatedSpeed >= 50f
+        if (isVehicleBucket && !motionTransientObserved) {
+            lastEstimateBucket = -1
+            consistentEstimateCount = 0
+            return
+        }
+
+        val bucket = when {
+            estimatedSpeed < 1f -> 0
+            estimatedSpeed < 30f -> 1
+            estimatedSpeed < 100f -> 2
+            estimatedSpeed < 300f -> 3
+            else -> 4
+        }
+        if (bucket == lastEstimateBucket) {
+            consistentEstimateCount++
+        } else {
+            lastEstimateBucket = bucket
+            consistentEstimateCount = 1
+        }
+
+        if (estimatedSpeed > 0f && initialSpeedEstimationCount > 20 &&
+            consistentEstimateCount >= CONSISTENT_ESTIMATE_REQUIRED
+        ) {
             inertialSpeed = estimatedSpeed
             displaySpeed = estimatedSpeed
             initialSpeedSetByUser = true
@@ -792,6 +920,11 @@ fun reset() {
         initialSpeedSetByUser = false
         accelHistoryForInitialEstimate.clear()
         initialSpeedEstimationCount = 0
+        highSpeedConfirmation = 0
+        stationaryState = false
+        motionTransientObserved = false
+        lastEstimateBucket = -1
+        consistentEstimateCount = 0
         confidenceCalculator.reset()
     }
 
